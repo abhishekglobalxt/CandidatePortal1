@@ -6,6 +6,12 @@ const API_URL = "https://hirexpert-1ecv.onrender.com/api/interviews";
 const N8N_UPLOAD_WEBHOOK =
   "https://n8n.srv958691.hstgr.cloud/webhook-test/candidate-upload";
 
+/* ===== Feature flags ===== */
+const ENABLE_FULLSCREEN_ENFORCE = true;
+const ENABLE_VISIBILITY_WARN    = true;
+const ENABLE_FACE_CHECK         = true; // uses FaceDetector if available
+const MAX_WARNINGS_BEFORE_END   = 2;
+
 /* ---------- Presentational bits ---------- */
 function Header({ title, current, total }) {
   const pct = total ? Math.round((current / total) * 100) : 0;
@@ -27,7 +33,7 @@ function Header({ title, current, total }) {
         <div className="hx-head-right">
           <span
             className="hx-help"
-            title="Make sure you have a quiet, well-lit place. You can’t skip questions."
+            title="Stay in fullscreen, keep your face clearly visible, and do not switch tabs."
           >
             ?
           </span>
@@ -51,7 +57,7 @@ export default function CandidatePortal() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const interviewIdParam = params.get("id") || "";
-    const setup = sessionStorage.getItem("gx_candidate"); // set by SetupPortal after submit
+    const setup = sessionStorage.getItem("gx_candidate");
     if (!setup) {
       window.location.replace(
         `/setup${interviewIdParam ? `?id=${encodeURIComponent(interviewIdParam)}` : ""}`
@@ -59,7 +65,6 @@ export default function CandidatePortal() {
     }
   }, []);
 
-  // Read ?id=... from URL
   const params = new URLSearchParams(window.location.search);
   const interviewId = params.get("id") || "";
 
@@ -70,7 +75,7 @@ export default function CandidatePortal() {
 
   // Flow
   const [idx, setIdx] = useState(0);
-  const [stage, setStage] = useState("question"); // "question" | "review" | "uploading" | "done"
+  const [stage, setStage] = useState("question"); // "question" | "review" | "uploading" | "done" | "disqualified"
 
   // Media
   const previewRef = useRef(null);
@@ -85,6 +90,12 @@ export default function CandidatePortal() {
   // Time
   const [timeLeft, setTimeLeft] = useState(0);
   const [uploadPct, setUploadPct] = useState(0);
+
+  // Proctoring
+  const [warningsCount, setWarningsCount] = useState(0);
+  const [warningsThisQ, setWarningsThisQ] = useState([]); // [{type, at, detail}]
+  const faceCheckTimer = useRef(null);
+  const canvasRef = useRef(null);
 
   // ===== Fetch interview =====
   useEffect(() => {
@@ -173,6 +184,99 @@ export default function CandidatePortal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  // ===== Proctoring listeners =====
+  useEffect(() => {
+    function addWarning(type, detail = "") {
+      const entry = { type, at: Date.now(), detail };
+      setWarningsThisQ((w) => [...w, entry]);
+      setWarningsCount((n) => {
+        const next = n + 1;
+        if (next >= MAX_WARNINGS_BEFORE_END) {
+          // end interview
+          if (recorder && recorder.state !== "inactive") {
+            try { recorder.stop(); } catch {}
+          }
+          if (document.fullscreenElement) {
+            try { document.exitFullscreen(); } catch {}
+          }
+          setStage("disqualified");
+          try { stream?.getTracks()?.forEach(t => t.stop()); } catch {}
+        }
+        return next;
+      });
+    }
+
+    if (!isRecording) return;
+
+    // 1) Tab/App switch
+    function onVis() {
+      if (document.visibilityState !== "visible" && ENABLE_VISIBILITY_WARN) {
+        addWarning("tab_switch", "Page hidden");
+      }
+    }
+    function onBlur() {
+      if (ENABLE_VISIBILITY_WARN) addWarning("window_blur", "Window lost focus");
+    }
+
+    // 2) Fullscreen exit
+    function onFsChange() {
+      if (ENABLE_FULLSCREEN_ENFORCE && !document.fullscreenElement) {
+        addWarning("exit_fullscreen", "Left fullscreen during recording");
+      }
+    }
+
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("fullscreenchange", onFsChange);
+
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("fullscreenchange", onFsChange);
+    };
+  }, [isRecording, recorder, stream]);
+
+  // ===== Face presence (basic) =====
+  useEffect(() => {
+    if (!ENABLE_FACE_CHECK || !isRecording) return;
+    const supported = "FaceDetector" in window;
+    if (!supported) return;
+
+    const fd = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 2 });
+
+    async function tick() {
+      try {
+        const v = previewRef.current;
+        if (!v || v.readyState < 2) return;
+        const canvas =
+          canvasRef.current || (canvasRef.current = document.createElement("canvas"));
+        canvas.width = v.videoWidth;
+        canvas.height = v.videoHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        const faces = await fd.detect(canvas);
+        if (!faces || faces.length === 0) {
+          // no face
+          setWarningsThisQ((w) => [...w, { type: "no_face", at: Date.now() }]);
+          setWarningsCount((n) => (n + 1 >= MAX_WARNINGS_BEFORE_END ? n + 1 : n + 1));
+          if (navigator.vibrate) navigator.vibrate(50);
+        } else if (faces.length > 1) {
+          setWarningsThisQ((w) => [...w, { type: "multiple_faces", at: Date.now() }]);
+          setWarningsCount((n) => (n + 1 >= MAX_WARNINGS_BEFORE_END ? n + 1 : n + 1));
+          if (navigator.vibrate) navigator.vibrate(50);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    faceCheckTimer.current = window.setInterval(tick, 3000);
+    return () => {
+      if (faceCheckTimer.current) window.clearInterval(faceCheckTimer.current);
+      faceCheckTimer.current = null;
+    };
+  }, [isRecording]);
+
   // ===== Countdown =====
   useEffect(() => {
     if (!isRecording) return;
@@ -216,8 +320,24 @@ export default function CandidatePortal() {
     return "video/webm";
   }
 
-  function startRecording() {
+  async function requestFsIfNeeded() {
+    if (!ENABLE_FULLSCREEN_ENFORCE) return true;
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+      return true;
+    } catch {
+      alert("Please allow fullscreen to start recording.");
+      return false;
+    }
+  }
+
+  async function startRecording() {
     if (!stream || isRecording || !currentQ) return;
+    const ok = await requestFsIfNeeded();
+    if (!ok) return;
+
     const mimeType = getMime();
     const mr = new MediaRecorder(stream, {
       mimeType,
@@ -236,14 +356,19 @@ export default function CandidatePortal() {
       setIsRecording(false);
       setStage("review");
     };
-    mr.start();
-    setRecorder(mr);
+    // reset per-question warnings
+    setWarningsThisQ([]);
     setIsRecording(true);
     setTimeLeft(currentQ.timeLimit);
+    setRecorder(mr);
+    mr.start();
   }
 
   function stopRecording() {
     if (recorder && recorder.state !== "inactive") recorder.stop();
+    if (document.fullscreenElement && ENABLE_FULLSCREEN_ENFORCE) {
+      try { document.exitFullscreen(); } catch {}
+    }
   }
 
   function discardAndRetry() {
@@ -255,8 +380,15 @@ export default function CandidatePortal() {
 
   async function uploadAnswer() {
     if (!recordingBlob || !currentQ || !interview) return;
+    if (stage === "disqualified") return;
+
     setStage("uploading");
     setUploadPct(10);
+
+    // Token from Setup
+    const setup = JSON.parse(sessionStorage.getItem("gx_candidate") || "{}");
+    const candidateToken =
+      setup.candidateId || setup.candidate_token || setup.candidate_id || "";
 
     const ext = recordingBlob.type.includes("mp4") ? "mp4" : "webm";
     const filePath = `${interview.interviewId}/${currentQ.id}.${ext}`;
@@ -264,18 +396,26 @@ export default function CandidatePortal() {
     const form = new FormData();
     form.append("interview_id", interview.interviewId);
     form.append("question_id", currentQ.id);
+    form.append("candidate_token", candidateToken);
     form.append("file_path", filePath);
     form.append("mimeType", recordingBlob.type || "video/webm");
     form.append("userAgent", navigator.userAgent);
+    // proctoring payload
+    form.append("proctor_warnings_count", String(warningsThisQ.length));
+    form.append("proctor_warnings_json", JSON.stringify(warningsThisQ));
+    form.append("disqualified", String(warningsCount >= MAX_WARNINGS_BEFORE_END));
+
     form.append("file", recordingBlob, `${currentQ.id}.${ext}`);
 
     try {
-      const res = await fetch(N8N_UPLOAD_WEBHOOK, {
-        method: "POST",
-        body: form,
-      });
+      const res = await fetch(N8N_UPLOAD_WEBHOOK, { method: "POST", body: form });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       setUploadPct(100);
+
+      if (warningsCount >= MAX_WARNINGS_BEFORE_END) {
+        setStage("disqualified");
+        return;
+      }
 
       const next = idx + 1;
       if (next < total) {
@@ -307,16 +447,15 @@ export default function CandidatePortal() {
             {Array.from({ length: total }).map((_, i) => (
               <li
                 key={i}
-                className={`hx-step ${i < idx ? "done" : ""} ${
-                  i === idx ? "current" : ""
-                }`}
+                className={`hx-step ${i < idx ? "done" : ""} ${i === idx ? "current" : ""}`}
               >
                 <span className="hx-step-dot" />
                 <span className="hx-step-text">Question {i + 1}</span>
               </li>
             ))}
           </ol>
-          <div className="hx-rail-note">You can’t skip or go back.</div>
+          <div className="hx-rail-note">Stay in fullscreen while answering.</div>
+          <div className="hx-rail-note">Warnings: {warningsCount}</div>
         </aside>
 
         <section className="hx-content">
@@ -334,7 +473,15 @@ export default function CandidatePortal() {
             </Card>
           )}
 
-          {!loading && interview && currentQ && (
+          {stage === "disqualified" && (
+            <Card>
+              <div className="hx-error" style={{ fontSize: 18 }}>
+                You are trying to cheat; hence disqualified. Please contact HR.
+              </div>
+            </Card>
+          )}
+
+          {!loading && interview && currentQ && stage !== "disqualified" && (
             <Card>
               <div className="hx-card-head">
                 <div className="hx-question-index">
@@ -353,115 +500,52 @@ export default function CandidatePortal() {
               <div className="hx-question">{currentQ.text}</div>
 
               <div className="hx-progress">
-                <div
-                  className="hx-progress-fill"
-                  style={{ width: `${pctThisQ}%` }}
-                />
+                <div className="hx-progress-fill" style={{ width: `${pctThisQ}%` }} />
               </div>
 
               <div className="hx-media">
-                {stage === "question" && (
-                  <div className="hx-media-area">
-                    <video
-                      ref={previewRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="hx-video"
-                      aria-label="Camera preview"
-                    />
-                    {!isRecording && (
-                      <button
-                        className="hx-play-overlay"
-                        onClick={startRecording}
-                        disabled={!!permError}
-                        title={
-                          permError
-                            ? "Allow camera/mic and refresh"
-                            : "Start recording (Space)"
-                        }
-                        aria-label="Start recording"
-                      >
-                        ▶
-                      </button>
-                    )}
-                    {permError && <div className="hx-perm">{permError}</div>}
-                  </div>
-                )}
-
-                {stage === "review" && (
-                  <div className="hx-media-area">
-                    <video
-                      ref={playbackRef}
-                      className="hx-video"
-                      src={recordingUrl}
-                      controls
-                      playsInline
-                      aria-label="Review your recording"
-                    />
-                  </div>
-                )}
-
-                {stage === "uploading" && (
-                  <div className="hx-upload">
-                    <div className="hx-bar">
-                      <div
-                        className="hx-fill"
-                        style={{ width: `${uploadPct}%` }}
-                      />
-                    </div>
-                    <div className="hx-upload-text">Uploading your answer…</div>
-                  </div>
-                )}
+                <video
+                  ref={stage === "review" ? playbackRef : previewRef}
+                  autoPlay={stage === "question"}
+                  playsInline
+                  muted={stage === "question"}
+                  controls={stage === "review"}
+                  className="hx-video"
+                  aria-label={stage === "question" ? "Camera preview" : "Review your recording"}
+                  src={stage === "review" ? recordingUrl : undefined}
+                />
+                {permError && <div className="hx-perm">{permError}</div>}
               </div>
 
               <div className="hx-controls">
                 <div className="hx-timer">
                   {stage === "question" &&
                     (isRecording ? (
-                      <>
-                        Time left: <b>{timeLeft}s</b>
-                      </>
+                      <>Time left: <b>{timeLeft}s</b></>
                     ) : (
-                      <>Ready to record</>
+                      <>Ready to record (Fullscreen required)</>
                     ))}
                 </div>
 
                 <div className="hx-actions">
                   {stage === "question" &&
                     (isRecording ? (
-                      <button
-                        className="hx-btn danger"
-                        onClick={stopRecording}
-                        aria-label="Stop recording (Space)"
-                      >
+                      <button className="hx-btn danger" onClick={stopRecording} aria-label="Stop recording (Space)">
                         Stop
                       </button>
                     ) : (
-                      <button
-                        className="hx-btn"
-                        onClick={startRecording}
-                        disabled={!!permError}
-                        aria-label="Start recording (Space)"
-                      >
+                      <button className="hx-btn" onClick={startRecording} disabled={!!permError} aria-label="Start recording (Space)">
                         Start
                       </button>
                     ))}
 
                   {stage === "review" && (
                     <>
-                      <button
-                        className="hx-btn"
-                        onClick={uploadAnswer}
-                        aria-label="Upload (Enter)"
-                      >
+                      <button className="hx-btn" onClick={uploadAnswer} aria-label="Upload (Enter)">
                         Looks good — Upload
                       </button>
                       {interview.allowRerecord && (
-                        <button
-                          className="hx-btn ghost"
-                          onClick={discardAndRetry}
-                        >
+                        <button className="hx-btn ghost" onClick={discardAndRetry}>
                           Re-record
                         </button>
                       )}
@@ -474,9 +558,7 @@ export default function CandidatePortal() {
 
           {stage === "done" && (
             <Card>
-              <div className="hx-done">
-                🎉 All set! Thanks for completing the interview.
-              </div>
+              <div className="hx-done">🎉 All set! Thanks for completing the interview.</div>
             </Card>
           )}
         </section>
