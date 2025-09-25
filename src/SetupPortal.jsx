@@ -1,5 +1,6 @@
+// src/SetupPortal.jsx
 import { useEffect, useRef, useState } from "react";
-import "./App.css"; // <— new stylesheet
+import "./App.css"; // <- make sure this file exists at src/setup.modern.css
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
@@ -8,9 +9,9 @@ function useQuery() {
   return Object.fromEntries(p.entries());
 }
 
-function StatusPill({ ok, label }) {
+function Pill({ ok, label }) {
   return (
-    <span className={`pill ${ok ? "ok" : ""}`}>
+    <span className={`gx-pill ${ok ? "ok" : ""}`}>
       <span className="dot" />
       {label} {ok ? "ready" : "…"}
     </span>
@@ -20,7 +21,7 @@ function StatusPill({ ok, label }) {
 export default function SetupPortal() {
   const { id: interviewIdParam = "" } = useQuery();
 
-  // persist id for handoff to interview page
+  // persist id for handoff
   useEffect(() => {
     if (interviewIdParam) sessionStorage.setItem("gx_interview_id", interviewIdParam);
   }, [interviewIdParam]);
@@ -94,8 +95,11 @@ export default function SetupPortal() {
 
   const stopTest = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (analyserRef.current) { try { analyserRef.current.disconnect(); } catch {} }
-    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} }
+    rafRef.current = null;
+    try { analyserRef.current?.disconnect(); } catch {}
+    try { audioCtxRef.current?.close(); } catch {}
+    analyserRef.current = null;
+    audioCtxRef.current = null;
     const s = streamRef.current;
     if (s) s.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -104,6 +108,7 @@ export default function SetupPortal() {
     setCamOk(false);
     setMicOk(false);
   };
+
   useEffect(() => () => stopTest(), []);
 
   const onSubmit = async (e) => {
@@ -148,8 +153,8 @@ export default function SetupPortal() {
   };
 
   return (
-    <div className="page">
-      <header className="topbar">
+    <div className="gx-page">
+      <header className="gx-topbar">
         <div className="brand">
           <span className="logo-dot" />
           <span className="brand-name">GlobalXperts</span>
@@ -157,54 +162,54 @@ export default function SetupPortal() {
         </div>
       </header>
 
-      <main className="container">
-        <section className="card">
-          <div className="left">
-            <div className="video-surface">
-              <video ref={videoRef} playsInline muted className="video" />
+      <main className="gx-container">
+        <section className="gx-card">
+          <div className="gx-left">
+            <div className="gx-video-surface">
+              <video ref={videoRef} playsInline muted className="gx-video" />
               {!isTesting ? (
-                <button className="btn primary floating" type="button" onClick={startTest}>
+                <button className="gx-btn primary floating" type="button" onClick={startTest}>
                   Start camera & mic test
                 </button>
               ) : (
-                <button className="btn subtle floating" type="button" onClick={stopTest}>
+                <button className="gx-btn subtle floating" type="button" onClick={stopTest}>
                   Stop test
                 </button>
               )}
-              <div className="soft-shine" />
+              <div className="gx-soft-shine" />
             </div>
 
-            <div className="meter">
+            <div className="gx-meter">
               <div className="fill" style={{ width: `${Math.round(audioLevel * 100)}%` }} />
             </div>
 
-            <div className="status">
-              <StatusPill ok={camOk} label="Camera" />
-              <StatusPill ok={micOk} label="Mic" />
+            <div className="gx-status">
+              <Pill ok={camOk} label="Camera" />
+              <Pill ok={micOk} label="Mic" />
             </div>
 
-            {permError && <div className="banner error">{permError}</div>}
-            <p className="hint">Speak “testing 1-2-3” — the bar should pulse.</p>
+            {permError && <div className="gx-banner error">{permError}</div>}
+            <p className="gx-hint">Speak “testing 1-2-3” — the bar should pulse.</p>
           </div>
 
-          <form className="right" onSubmit={onSubmit}>
+          <form className="gx-right" onSubmit={onSubmit}>
             <h2>Candidate details</h2>
 
-            {/* floating labels */}
-            <div className="field">
+            {/* Floating labels for text/email only */}
+            <div className="gx-field">
               <input
                 id="fullName"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder=" " // keep space for :placeholder-shown
+                placeholder=" "
                 autoComplete="name"
                 required
               />
               <label htmlFor="fullName">Full name</label>
             </div>
 
-            <div className="field">
+            <div className="gx-field">
               <input
                 id="email"
                 type="email"
@@ -217,26 +222,29 @@ export default function SetupPortal() {
               <label htmlFor="email">Email</label>
             </div>
 
-            <div className="field file">
-              <label htmlfor="resume">Resume (.pdf, .doc, ,docx)</label>
+            {/* File field — label above, no float */}
+            <div className="gx-field file">
+              <label htmlFor="resume">Resume (.pdf, .doc, .docx)</label>
               <input
                 id="resume"
                 type="file"
-                accept=".pdf,.doc,.docx"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setResume(e.target.files?.[0] || null)}
                 required
               />
             </div>
 
-            {submitError && <div className="banner error">{submitError}</div>}
+            {submitError && <div className="gx-banner error">{submitError}</div>}
 
-            <div className="actions">
-              <button className="btn primary" disabled={submitting}>
+            <div className="gx-actions">
+              <button className="gx-btn primary" disabled={submitting}>
                 {submitting ? "Submitting…" : "Submit & continue"}
               </button>
             </div>
 
-            <p className="privacy">We only use this info for this interview. Your files are stored securely.</p>
+            <p className="gx-privacy">
+              We only use this info for this interview. Your files are stored securely.
+            </p>
           </form>
         </section>
       </main>
