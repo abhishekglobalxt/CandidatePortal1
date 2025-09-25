@@ -218,14 +218,14 @@ export default function SetupPortal() {
             </div>
 
             <div className="field file">
+              <label htmlfor="resume">Resume (.pdf, .doc, ,docx)</label>
               <input
                 id="resume"
                 type="file"
-                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept=".pdf,.doc,.docx"
                 onChange={(e) => setResume(e.target.files?.[0] || null)}
                 required
               />
-              <label htmlFor="resume">Resume (.pdf, .doc, .docx)</label>
             </div>
 
             {submitError && <div className="banner error">{submitError}</div>}
