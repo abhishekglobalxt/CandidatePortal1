@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import "./App.css"; // new css file
+import "./setup.modern.css"; // <— new stylesheet
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
@@ -10,7 +10,7 @@ function useQuery() {
 
 function StatusPill({ ok, label }) {
   return (
-    <span className={`gx-pill ${ok ? "ok" : ""}`}>
+    <span className={`pill ${ok ? "ok" : ""}`}>
       <span className="dot" />
       {label} {ok ? "ready" : "…"}
     </span>
@@ -18,9 +18,14 @@ function StatusPill({ ok, label }) {
 }
 
 export default function SetupPortal() {
-  const { id: interviewId = "" } = useQuery();
+  const { id: interviewIdParam = "" } = useQuery();
 
-  // refs
+  // persist id for handoff to interview page
+  useEffect(() => {
+    if (interviewIdParam) sessionStorage.setItem("gx_interview_id", interviewIdParam);
+  }, [interviewIdParam]);
+
+  // media
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -28,13 +33,14 @@ export default function SetupPortal() {
   const rafRef = useRef(null);
   const dataArrayRef = useRef(null);
 
-  // states
+  // ui
   const [isTesting, setIsTesting] = useState(false);
   const [permError, setPermError] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
 
+  // form
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [resume, setResume] = useState(null);
@@ -45,11 +51,10 @@ export default function SetupPortal() {
     setPermError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
-
       setCamOk(stream.getVideoTracks().length > 0);
       setMicOk(stream.getAudioTracks().length > 0);
 
@@ -74,118 +79,164 @@ export default function SetupPortal() {
           sum += v * v;
         }
         const rms = Math.sqrt(sum / dataArrayRef.current.length);
-        setAudioLevel(Math.min(1, rms * 4));
-        if (rms > 0.03) setMicOk(true);
+        const lvl = Math.min(1, rms * 4);
+        setAudioLevel(lvl);
+        if (lvl > 0.03) setMicOk(true);
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
-    } catch {
-      setPermError("Camera or microphone access denied. Allow permissions and retry.");
+    } catch (err) {
+      console.error(err);
+      setPermError("We couldn’t access your camera/mic. Please allow permissions and try again.");
+      stopTest();
     }
   };
 
   const stopTest = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (audioCtxRef.current) audioCtxRef.current.close();
+    if (analyserRef.current) { try { analyserRef.current.disconnect(); } catch {} }
+    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} }
     const s = streamRef.current;
     if (s) s.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
     setIsTesting(false);
     setAudioLevel(0);
     setCamOk(false);
     setMicOk(false);
   };
-
   useEffect(() => () => stopTest(), []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return setSubmitError("Enter name & email.");
-    if (!resume) return setSubmitError("Attach resume.");
-    if (!camOk || !micOk) return setSubmitError("Complete the camera & mic test.");
+    setSubmitError("");
+
+    if (!name.trim() || !email.trim()) return setSubmitError("Please enter your name and email.");
+    if (!resume) return setSubmitError("Attach your resume (.pdf, .doc, .docx).");
+    const okExt = [".pdf", ".doc", ".docx"].some((ext) => resume.name.toLowerCase().endsWith(ext));
+    if (!okExt) return setSubmitError("Resume must be PDF or Word.");
+    if (!camOk || !micOk) return setSubmitError("Please complete the camera & mic test.");
+    if (!SETUP_WEBHOOK) return setSubmitError("Setup webhook is not configured.");
 
     setSubmitting(true);
     try {
+      const iid = interviewIdParam || sessionStorage.getItem("gx_interview_id") || "";
       const form = new FormData();
       form.append("name", name);
       form.append("email", email);
-      form.append("interview_id", interviewId);
-      form.append("cam_ok", camOk);
-      form.append("mic_ok", micOk);
+      form.append("interview_id", iid);
+      form.append("cam_ok", String(camOk));
+      form.append("mic_ok", String(micOk));
       form.append("user_agent", navigator.userAgent);
       form.append("resume", resume, resume.name);
 
       const res = await fetch(SETUP_WEBHOOK, { method: "POST", body: form });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.message || "Setup failed.");
+      let payload = {};
+      try { payload = await res.json(); } catch {}
+      if (!res.ok) throw new Error(payload?.message || `Setup failed (${res.status})`);
 
-      sessionStorage.setItem(
-        "gx_candidate",
-        JSON.stringify({ candidateId: payload.candidateId, name, email })
-      );
-      sessionStorage.setItem("gx_interview_id", interviewId);
+      const candidateId = payload.candidateId || payload.candidate_id || payload.id || null;
+      sessionStorage.setItem("gx_candidate", JSON.stringify({ candidateId, name, email }));
+      sessionStorage.setItem("gx_interview_id", iid);
 
-      window.location.assign(`/interview?id=${encodeURIComponent(interviewId)}`);
+      window.location.assign(`/interview${iid ? `?id=${encodeURIComponent(iid)}` : ""}`);
     } catch (err) {
-      setSubmitError(err.message);
+      console.error(err);
+      setSubmitError(err.message || "Something went wrong during setup.");
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="gx-setup white">
-      <header className="gx-setup-header">
+    <div className="page">
+      <header className="topbar">
         <div className="brand">
-          <div className="logo-dot" />
+          <span className="logo-dot" />
           <span className="brand-name">GlobalXperts</span>
           <span className="brand-sub">Pre-Interview Setup</span>
         </div>
       </header>
 
-      <main className="gx-setup-main">
-        <section className="gx-shell">
-          <div className="gx-left">
-            <div className="gx-video-wrap">
-              <video ref={videoRef} playsInline muted className="gx-video" />
-              {!isTesting && <button className="gx-cta" onClick={startTest}>Start test</button>}
-              {isTesting && <button className="gx-cta ghost" onClick={stopTest}>Stop test</button>}
+      <main className="container">
+        <section className="card">
+          <div className="left">
+            <div className="video-surface">
+              <video ref={videoRef} playsInline muted className="video" />
+              {!isTesting ? (
+                <button className="btn primary floating" type="button" onClick={startTest}>
+                  Start camera & mic test
+                </button>
+              ) : (
+                <button className="btn subtle floating" type="button" onClick={stopTest}>
+                  Stop test
+                </button>
+              )}
+              <div className="soft-shine" />
             </div>
 
-            <div className="gx-meter">
-              <div className="gx-meter-fill" style={{ width: `${Math.round(audioLevel * 100)}%` }} />
+            <div className="meter">
+              <div className="fill" style={{ width: `${Math.round(audioLevel * 100)}%` }} />
             </div>
 
-            <div className="gx-status">
+            <div className="status">
               <StatusPill ok={camOk} label="Camera" />
               <StatusPill ok={micOk} label="Mic" />
             </div>
 
-            {permError && <div className="gx-banner error">{permError}</div>}
+            {permError && <div className="banner error">{permError}</div>}
+            <p className="hint">Speak “testing 1-2-3” — the bar should pulse.</p>
           </div>
 
-          <form className="gx-right" onSubmit={onSubmit}>
-            <h2>Candidate Details</h2>
+          <form className="right" onSubmit={onSubmit}>
+            <h2>Candidate details</h2>
 
-            <div className="gx-field">
-              <label>Full Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+            {/* floating labels */}
+            <div className="field">
+              <input
+                id="fullName"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder=" " // keep space for :placeholder-shown
+                autoComplete="name"
+                required
+              />
+              <label htmlFor="fullName">Full name</label>
             </div>
 
-            <div className="gx-field">
-              <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <div className="field">
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder=" "
+                autoComplete="email"
+                required
+              />
+              <label htmlFor="email">Email</label>
             </div>
 
-            <div className="gx-field">
-              <label>Resume</label>
-              <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setResume(e.target.files[0])} />
+            <div className="field file">
+              <input
+                id="resume"
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(e) => setResume(e.target.files?.[0] || null)}
+                required
+              />
+              <label htmlFor="resume">Resume (.pdf, .doc, .docx)</label>
             </div>
 
-            {submitError && <div className="gx-banner error">{submitError}</div>}
+            {submitError && <div className="banner error">{submitError}</div>}
 
-            <button className="gx-primary" disabled={submitting}>
-              {submitting ? "Submitting…" : "Submit & Continue"}
-            </button>
+            <div className="actions">
+              <button className="btn primary" disabled={submitting}>
+                {submitting ? "Submitting…" : "Submit & continue"}
+              </button>
+            </div>
+
+            <p className="privacy">We only use this info for this interview. Your files are stored securely.</p>
           </form>
         </section>
       </main>
