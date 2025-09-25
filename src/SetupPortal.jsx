@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import "./setup.modern.css"; // <— new stylesheet
+import "./App.css"; // <— new stylesheet
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
