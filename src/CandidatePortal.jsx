@@ -272,7 +272,7 @@ export default function CandidatePortal() {
     return "video/webm";
   };
 
-  const [timeLeft, setTimeLeftState] = useState(0); // already declared above; ensure single declaration
+  // const [timeLeft, setTimeLeftState] = useState(0); // already declared above; ensure single declaration
   // NOTE: Keep only one declaration; if your editor complains, remove this line.
 
   const startRecording = async () => {
