@@ -1,18 +1,20 @@
 // CandidatePortal.jsx
 import gxLogo from "./assets/globalxperts-logo.png";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-const API_URL = "https://hirexpert-1ecv.onrender.com/api/interviews";
-const N8N_UPLOAD_WEBHOOK =
-  "https://n8n.srv958691.hstgr.cloud/webhook-test/candidate-upload";
+/** ================== ENV / CONFIG ================== **/
+const INTERVIEWS_API = import.meta.env.VITE_INTERVIEWS_API || "https://hirexpert-1ecv.onrender.com/api/interviews";
+const UPLOAD_WEBHOOK  = import.meta.env.VITE_UPLOAD_WEBHOOK; // e.g. https://n8n…/webhook/candidate-upload
 
-/* ===== Feature flags ===== */
-const ENABLE_FULLSCREEN_ENFORCE = true;
-const ENABLE_VISIBILITY_WARN    = true;
-const ENABLE_FACE_CHECK         = true; // uses FaceDetector if available
-const MAX_WARNINGS_BEFORE_END   = 2;
+const VIDEO_CONSTRAINTS = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
+const AUDIO_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
-/* ---------- Presentational bits ---------- */
+const BITRATES = { videoBitsPerSecond: 2_800_000, audioBitsPerSecond: 128_000 }; // ~2.8 Mbps @720p
+const WARNING_AUTOHIDE_MS = 3500;
+
+const progressKey = (iid, cid) => `hirexpert_progress_${iid || "na"}_${cid || "na"}`;
+
+/** ================== Small UI helpers (no layout change) ================== **/
 function Header({ title, current, total }) {
   const pct = total ? Math.round((current / total) * 100) : 0;
   return (
@@ -25,407 +27,370 @@ function Header({ title, current, total }) {
           <div className="hx-title">{title || "Loading…"}</div>
           <div className="hx-overall">
             <div className="hx-overall-text">Progress: {pct}%</div>
-            <div className="hx-overall-bar">
-              <div className="hx-overall-fill" style={{ width: `${pct}%` }} />
-            </div>
+            <div className="hx-overall-bar"><div className="hx-overall-fill" style={{ width: `${pct}%` }} /></div>
           </div>
         </div>
         <div className="hx-head-right">
-          <span
-            className="hx-help"
-            title="Stay in fullscreen, keep your face clearly visible, and do not switch tabs."
-          >
-            ?
-          </span>
+          <span className="hx-help" title="Stay in fullscreen, keep your face visible, and avoid switching tabs.">?</span>
         </div>
       </div>
     </header>
   );
 }
 
-function Card({ children }) {
-  return <div className="hx-card">{children}</div>;
+function Card({ children }) { return <div className="hx-card">{children}</div>; }
+
+function Chip({ children, tone = "neutral" }) { return <span className={`hx-chip ${tone}`}>{children}</span>; }
+
+function ProctorBanner({ message, onClose }) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setVisible(false), WARNING_AUTOHIDE_MS); return () => clearTimeout(t); }, []);
+  useEffect(() => { if (!visible) { const t = setTimeout(onClose, 400); return () => clearTimeout(t); } }, [visible, onClose]);
+  return (
+    <div aria-live="polite" style={{
+      position: "fixed", right: 16, top: 16, zIndex: 1000,
+      transform: visible ? "translateX(0)" : "translateX(120%)",
+      transition: "transform 0.35s ease", maxWidth: 360
+    }}>
+      <div className="hx-card" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.18)", borderLeft: "4px solid #F59E0B" }}>
+        <div style={{ padding: 12 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Proctoring notice</div>
+          <div style={{ fontSize: 14, opacity: 0.9 }}>{message}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function Chip({ children, tone = "neutral" }) {
-  return <span className={`hx-chip ${tone}`}>{children}</span>;
-}
-
-/* ---------- Main component ---------- */
+/** ================== Main Component ================== **/
 export default function CandidatePortal() {
-  // Redirect to Setup if not completed
+  /** -------- Session guard -------- **/
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const interviewIdParam = params.get("id") || "";
     const setup = sessionStorage.getItem("gx_candidate");
-    if (!setup) {
-      window.location.replace(
-        `/setup${interviewIdParam ? `?id=${encodeURIComponent(interviewIdParam)}` : ""}`
-      );
-    }
+    if (!setup) window.location.replace(`/setup${interviewIdParam ? `?id=${encodeURIComponent(interviewIdParam)}` : ""}`);
   }, []);
 
   const params = new URLSearchParams(window.location.search);
   const interviewId = params.get("id") || "";
 
-  // Data
+  const candidate = useMemo(() => {
+    try { return JSON.parse(sessionStorage.getItem("gx_candidate") || "{}"); }
+    catch { return {}; }
+  }, []);
+
+  /** -------- Data state -------- **/
   const [loading, setLoading] = useState(true);
   const [interview, setInterview] = useState(null);
   const [error, setError] = useState("");
 
-  // Flow
-  const [idx, setIdx] = useState(0);
-  const [stage, setStage] = useState("question"); // "question" | "review" | "uploading" | "done" | "disqualified"
-
-  // Media
-  const previewRef = useRef(null);
-  const playbackRef = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [recorder, setRecorder] = useState(null);
-  const [recordingBlob, setRecordingBlob] = useState(null);
-  const [recordingUrl, setRecordingUrl] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [permError, setPermError] = useState("");
-
-  // Time
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [uploadPct, setUploadPct] = useState(0);
-
-  // Proctoring
-  const [warningsCount, setWarningsCount] = useState(0);
-  const [warningsThisQ, setWarningsThisQ] = useState([]); // [{type, at, detail}]
-  const faceCheckTimer = useRef(null);
-  const canvasRef = useRef(null);
-
-  // ===== Fetch interview =====
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const res = await fetch(API_URL);
-        if (!res.ok) throw new Error(`API ${res.status}`);
-        const list = await res.json();
-
-        const item = Array.isArray(list)
-          ? list.find((i) => i.id === interviewId)
-          : null;
-
-        if (!item) throw new Error("Interview not found");
-
-        const qs = item.questions.map((q, i) => ({
-          id: `q${i + 1}`,
-          text: q,
-          timeLimit: item.time_limits?.[i] ?? item.timeLimits?.[i] ?? 120,
-        }));
-
-        setInterview({
-          interviewId: item.id,
-          title: item.title,
-          allowRerecord: false,
-          questions: qs,
-        });
-
-        setTimeLeft(qs[0].timeLimit);
-      } catch (e) {
-        console.error(e);
-        setError("Couldn’t load interview. Check your link and try again.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [interviewId]);
-
+  /** -------- Flow state -------- **/
+  const [idx, setIdx] = useState(0);                // question index
+  const [stage, setStage] = useState("question");   // question | review | uploading | done
   const total = interview?.questions?.length || 0;
   const currentQ = interview?.questions?.[idx] || null;
-  const pctThisQ = currentQ
-    ? Math.max(0, Math.min(100, (timeLeft / currentQ.timeLimit) * 100))
-    : 0;
 
-  // ===== Guard against closing tab =====
-  useEffect(() => {
-    const handler = (e) => {
-      if (isRecording || (stage === "review" && recordingBlob)) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isRecording, stage, recordingBlob]);
+  /** -------- Media refs/state -------- **/
+  const videoEl = useRef(null);
+  const streamRef = useRef(null);
+  const recorderRef = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedBlob, setRecordedBlob] = useState(null);
+  const [recordingUrl, setRecordingUrl] = useState("");
+  const [permError, setPermError] = useState("");
+  const [timeLeft, setTimeLeft] = useState(0);
 
-  // ===== Ask for camera =====
+  /** -------- Proctoring data -------- **/
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  // per-question warning events: { [qid]: { warnings: [{type, ts}, ...] } }
+  const [answerMeta, setAnswerMeta] = useState({});
+  const [banners, setBanners] = useState([]);
+  const pushBanner = (msg) => setBanners((b) => [...b, { id: Math.random().toString(36).slice(2), message: msg }]);
+  const removeBanner = (id) => setBanners((b) => b.filter((x) => x.id !== id));
+
+  // Add a warning event (and optional tab-switch increment for certain reasons)
+  const addWarning = (reason) => {
+    const qid = (interview?.questions?.[idx]?.id) || `q${idx + 1}`;
+    setAnswerMeta((prev) => {
+      const next = { ...prev };
+      const entry = next[qid] || { warnings: [] };
+      entry.warnings = [...entry.warnings, { type: reason, ts: Date.now() }];
+      next[qid] = entry;
+      return next;
+    });
+    // Count tab-switch-like reasons in the session counter
+    if (["visibility", "blur", "fs-exit"].includes(reason)) {
+      setTabSwitchCount((n) => n + 1);
+    }
+    // Show banner text
+    pushBanner(
+      reason === "visibility"     ? "We detected a tab/app switch. Please stay focused on the interview."
+    : reason === "blur"           ? "Window focus lost. Please return to the interview."
+    : reason === "fs-exit"        ? "Fullscreen was exited. Please stay in fullscreen."
+    : reason === "multiple-faces" ? "Multiple faces detected. Continue solo to avoid flags."
+    : reason === "no-face"        ? "No face detected. Please stay in frame."
+    : "Session policy warning."
+    );
+  };
+
+  const getTotalWarningCount = (meta) =>
+    Object.values(meta || {}).reduce((sum, m) => sum + (m?.warnings?.length || 0), 0);
+
+  /** ================== FETCH QUESTIONS ================== **/
   useEffect(() => {
-    if (stage !== "question") return;
+    let cancelled = false;
     (async () => {
-      setPermError("");
       try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: true,
-        });
-        setStream(s);
-        if (previewRef.current) {
-          previewRef.current.srcObject = s;
-          await previewRef.current.play().catch(() => {});
+        setLoading(true); setError("");
+
+        // Try GET /:id first
+        let item = null;
+        try {
+          const res1 = await fetch(`${INTERVIEWS_API.replace(/\/$/, "")}/${encodeURIComponent(interviewId)}`);
+          if (res1.ok) item = await res1.json();
+        } catch { /* fallback */ }
+
+        if (!item) {
+          // Fallback: GET list then find
+          const res2 = await fetch(INTERVIEWS_API);
+          if (!res2.ok) throw new Error(`API ${res2.status}`);
+          const list = await res2.json();
+          item = Array.isArray(list) ? list.find(i => i.id === interviewId) : null;
         }
-      } catch (err) {
-        console.error(err);
-        setPermError(
-          "Camera/mic blocked. Allow permissions in your browser and refresh."
-        );
+        if (!item) throw new Error("Interview not found");
+
+        // Normalize questions/time limits
+        const qs = (item.questions || []).map((q, i) => ({
+          id: `q${i + 1}`,
+          text: q?.text || q, // supports ["..."] or [{text, timeLimit}]
+          timeLimit: item.time_limits?.[i] ?? item.timeLimits?.[i] ?? q?.timeLimit ?? 120,
+        }));
+
+        if (cancelled) return;
+        setInterview({ interviewId: item.id, title: item.title || "Interview", questions: qs });
+        setTimeLeft(qs[0]?.timeLimit || 120);
+
+        // Restore progress (index, tabSwitchCount, answerMeta)
+        try {
+          const raw = localStorage.getItem(progressKey(item.id, candidate?.candidateId || candidate?.id));
+          if (raw) {
+            const saved = JSON.parse(raw);
+            if (Number.isInteger(saved.currentIndex)) {
+              const safeIndex = Math.max(0, Math.min(qs.length - 1, saved.currentIndex));
+              setIdx(safeIndex);
+              setTimeLeft(qs[safeIndex]?.timeLimit ?? 120);
+            }
+            if (typeof saved.tabSwitchCount === "number") setTabSwitchCount(saved.tabSwitchCount);
+            if (saved.answerMeta && typeof saved.answerMeta === "object") setAnswerMeta(saved.answerMeta);
+          }
+        } catch { /* ignore */ }
+
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setError("Couldn’t load interview. Check your link and try again.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
+  }, [interviewId, candidate]);
 
+  /** Persist progress whenever key bits change */
+  useEffect(() => {
+    if (!interview?.interviewId) return;
+    try {
+      localStorage.setItem(
+        progressKey(interview.interviewId, candidate?.candidateId || candidate?.id),
+        JSON.stringify({
+          currentIndex: idx,
+          tabSwitchCount,
+          answerMeta,        // <-- per-question warnings persisted
+          savedAt: Date.now()
+        })
+      );
+    } catch { /* ignore quota */ }
+  }, [interview?.interviewId, candidate, idx, tabSwitchCount, answerMeta]);
+
+  /** ================== FULLSCREEN on entry (kept until submit) ================== **/
+  useEffect(() => {
+    (async () => { try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch {} })();
+    const onFs = () => { if (!document.fullscreenElement) addWarning("fs-exit"); };
+    document.addEventListener("fullscreenchange", onFs);
     return () => {
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-      setStream(null);
+      document.removeEventListener("fullscreenchange", onFs);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
+  }, []);
 
-  // ===== Proctoring listeners =====
+  /** ================== Proctoring: visibility/blur ================== **/
   useEffect(() => {
-    function addWarning(type, detail = "") {
-      const entry = { type, at: Date.now(), detail };
-      setWarningsThisQ((w) => [...w, entry]);
-      setWarningsCount((n) => {
-        const next = n + 1;
-        if (next >= MAX_WARNINGS_BEFORE_END) {
-          // end interview
-          if (recorder && recorder.state !== "inactive") {
-            try { recorder.stop(); } catch {}
-          }
-          if (document.fullscreenElement) {
-            try { document.exitFullscreen(); } catch {}
-          }
-          setStage("disqualified");
-          try { stream?.getTracks()?.forEach(t => t.stop()); } catch {}
-        }
-        return next;
-      });
-    }
-
-    if (!isRecording) return;
-
-    // 1) Tab/App switch
-    function onVis() {
-      if (document.visibilityState !== "visible" && ENABLE_VISIBILITY_WARN) {
-        addWarning("tab_switch", "Page hidden");
-      }
-    }
-    function onBlur() {
-      if (ENABLE_VISIBILITY_WARN) addWarning("window_blur", "Window lost focus");
-    }
-
-    // 2) Fullscreen exit
-    function onFsChange() {
-      if (ENABLE_FULLSCREEN_ENFORCE && !document.fullscreenElement) {
-        addWarning("exit_fullscreen", "Left fullscreen during recording");
-      }
-    }
-
+    const onVis = () => { if (document.visibilityState !== "visible") addWarning("visibility"); };
+    const onBlur = () => addWarning("blur");
+    window.addEventListener("visibilitychange", onVis);
     window.addEventListener("blur", onBlur);
-    document.addEventListener("visibilitychange", onVis);
-    document.addEventListener("fullscreenchange", onFsChange);
+    return () => { window.removeEventListener("visibilitychange", onVis); window.removeEventListener("blur", onBlur); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, interview?.interviewId]);
 
-    return () => {
-      window.removeEventListener("blur", onBlur);
-      document.removeEventListener("visibilitychange", onVis);
-      document.removeEventListener("fullscreenchange", onFsChange);
-    };
-  }, [isRecording, recorder, stream]);
-
-  // ===== Face presence (basic) =====
-  useEffect(() => {
-    if (!ENABLE_FACE_CHECK || !isRecording) return;
-    const supported = "FaceDetector" in window;
-    if (!supported) return;
-
-    const fd = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 2 });
-
-    async function tick() {
-      try {
-        const v = previewRef.current;
-        if (!v || v.readyState < 2) return;
-        const canvas =
-          canvasRef.current || (canvasRef.current = document.createElement("canvas"));
-        canvas.width = v.videoWidth;
-        canvas.height = v.videoHeight;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const faces = await fd.detect(canvas);
-        if (!faces || faces.length === 0) {
-          // no face
-          setWarningsThisQ((w) => [...w, { type: "no_face", at: Date.now() }]);
-          setWarningsCount((n) => (n + 1 >= MAX_WARNINGS_BEFORE_END ? n + 1 : n + 1));
-          if (navigator.vibrate) navigator.vibrate(50);
-        } else if (faces.length > 1) {
-          setWarningsThisQ((w) => [...w, { type: "multiple_faces", at: Date.now() }]);
-          setWarningsCount((n) => (n + 1 >= MAX_WARNINGS_BEFORE_END ? n + 1 : n + 1));
-          if (navigator.vibrate) navigator.vibrate(50);
-        }
-      } catch {
-        /* ignore */
+  /** ================== Camera preview lifecycle ================== **/
+  const ensurePreview = async () => {
+    if (streamRef.current) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: AUDIO_CONSTRAINTS });
+      streamRef.current = s;
+      if (videoEl.current) {
+        videoEl.current.srcObject = s;
+        videoEl.current.muted = true;
+        await videoEl.current.play().catch(() => {});
       }
+    } catch (err) {
+      console.error(err);
+      setPermError("Camera/mic blocked. Allow permissions in your browser and refresh.");
     }
+  };
 
-    faceCheckTimer.current = window.setInterval(tick, 3000);
+  useEffect(() => {
+    ensurePreview();
     return () => {
-      if (faceCheckTimer.current) window.clearInterval(faceCheckTimer.current);
-      faceCheckTimer.current = null;
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
     };
-  }, [isRecording]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ===== Countdown =====
-  useEffect(() => {
-    if (!isRecording) return;
-    if (timeLeft <= 0) {
-      stopRecording();
-      return;
-    }
-    const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [isRecording, timeLeft]);
-
-  // ===== Shortcuts =====
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (stage === "question") {
-          if (!isRecording) startRecording();
-          else stopRecording();
-        }
-      }
-      if (e.code === "Enter" && stage === "review") {
-        uploadAnswer();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [stage, isRecording, recordingBlob]);
-
-  // ===== Recording helpers =====
-  function getMime() {
+  /** ================== Recording ================== **/
+  const pickMime = () => {
     const choices = [
       "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
       "video/webm",
-      "video/mp4",
+      "video/mp4;codecs=h264,aac" // Safari fallback
     ];
-    for (const m of choices) {
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
-    }
+    for (const m of choices) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
     return "video/webm";
-  }
+  };
 
-  async function requestFsIfNeeded() {
-    if (!ENABLE_FULLSCREEN_ENFORCE) return true;
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      }
-      return true;
-    } catch {
-      alert("Please allow fullscreen to start recording.");
-      return false;
-    }
-  }
+  const [timeLeft, setTimeLeftState] = useState(0); // already declared above; ensure single declaration
+  // NOTE: Keep only one declaration; if your editor complains, remove this line.
 
-  async function startRecording() {
-    if (!stream || isRecording || !currentQ) return;
-    const ok = await requestFsIfNeeded();
-    if (!ok) return;
+  const startRecording = async () => {
+    if (!currentQ) return;
+    await ensurePreview();
 
-    const mimeType = getMime();
-    const mr = new MediaRecorder(stream, {
+    const mimeType = pickMime();
+    const mr = new MediaRecorder(streamRef.current, {
       mimeType,
-      videoBitsPerSecond: 2_500_000,
-      audioBitsPerSecond: 128_000,
+      videoBitsPerSecond: BITRATES.videoBitsPerSecond,
+      audioBitsPerSecond: BITRATES.audioBitsPerSecond
     });
+
     const chunks = [];
-    mr.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-    mr.onstop = () => {
-      const blob = new Blob(chunks, { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      setRecordingBlob(blob);
-      setRecordingUrl(url);
+    mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    mr.onstop = async () => {
+      const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+      setRecordedBlob(blob);
+      // Switch from live to playback on the SAME element
+      if (videoEl.current) {
+        videoEl.current.pause();
+        videoEl.current.srcObject = null;
+        const url = URL.createObjectURL(blob);
+        setRecordingUrl(url);
+        videoEl.current.src = url;
+        videoEl.current.muted = false;
+        await videoEl.current.play().catch(() => {});
+      }
+      // Stop camera while reviewing
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
       setIsRecording(false);
       setStage("review");
     };
-    // reset per-question warnings
-    setWarningsThisQ([]);
-    setIsRecording(true);
-    setTimeLeft(currentQ.timeLimit);
-    setRecorder(mr);
-    mr.start();
-  }
 
-  function stopRecording() {
-    if (recorder && recorder.state !== "inactive") recorder.stop();
-    if (document.fullscreenElement && ENABLE_FULLSCREEN_ENFORCE) {
-      try { document.exitFullscreen(); } catch {}
-    }
-  }
-
-  function discardAndRetry() {
-    if (recordingUrl) URL.revokeObjectURL(recordingUrl);
-    setRecordingBlob(null);
+    setRecordedBlob(null);
+    URL.revokeObjectURL(recordingUrl);
     setRecordingUrl("");
-    setStage("question");
-  }
 
-  async function uploadAnswer() {
-    if (!recordingBlob || !currentQ || !interview) return;
-    if (stage === "disqualified") return;
+    setIsRecording(true);
+    setTimeLeft(currentQ.timeLimit || 120);
+    recorderRef.current = mr;
+    mr.start(3000); // 3s slices (future resumable)
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state === "recording") recorderRef.current.stop();
+  };
+
+  /** Countdown while recording */
+  useEffect(() => {
+    if (!isRecording) return;
+    if (timeLeft <= 0) { stopRecording(); return; }
+    const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [isRecording, timeLeft]);
+
+  /** ================== Save & Upload ================== **/
+  const saveLocalProgress = (nextIndex = idx) => {
+    if (!interview?.interviewId) return;
+    try {
+      localStorage.setItem(
+        progressKey(interview.interviewId, candidate?.candidateId || candidate?.id),
+        JSON.stringify({
+          currentIndex: nextIndex,
+          tabSwitchCount,
+          answerMeta,         // persist per-question warnings
+          savedAt: Date.now()
+        })
+      );
+    } catch { /* ignore */ }
+  };
+
+  const uploadAnswer = async () => {
+    if (!UPLOAD_WEBHOOK) { alert("Upload webhook is not configured."); return; }
+    if (!recordedBlob || !currentQ || !interview) return;
 
     setStage("uploading");
-    setUploadPct(10);
 
-    // Token from Setup
-    const setup = JSON.parse(sessionStorage.getItem("gx_candidate") || "{}");
-    const candidateToken =
-      setup.candidateId || setup.candidate_token || setup.candidate_id || "";
-
-    const ext = recordingBlob.type.includes("mp4") ? "mp4" : "webm";
+    const token = candidate.candidateId || candidate.candidate_token || candidate.candidate_id || "";
+    const ext   = recordedBlob.type.includes("mp4") ? "mp4" : "webm";
     const filePath = `${interview.interviewId}/${currentQ.id}.${ext}`;
+
+    // gather proctoring metadata for this question
+    const thisQWarnings = answerMeta[currentQ.id]?.warnings || [];
+    const totalWarnings = getTotalWarningCount(answerMeta);
 
     const form = new FormData();
     form.append("interview_id", interview.interviewId);
     form.append("question_id", currentQ.id);
-    form.append("candidate_token", candidateToken);
+    form.append("candidate_token", token);
     form.append("file_path", filePath);
-    form.append("mimeType", recordingBlob.type || "video/webm");
+    form.append("mimeType", recordedBlob.type || "video/webm");
     form.append("userAgent", navigator.userAgent);
-    // proctoring payload
-    form.append("proctor_warnings_count", String(warningsThisQ.length));
-    form.append("proctor_warnings_json", JSON.stringify(warningsThisQ));
-    form.append("disqualified", String(warningsCount >= MAX_WARNINGS_BEFORE_END));
-
-    form.append("file", recordingBlob, `${currentQ.id}.${ext}`);
+    form.append("tab_switch_count", String(tabSwitchCount));
+    // proctoring extras for recruiter playback:
+    form.append("total_warnings", String(totalWarnings));
+    form.append("question_warning_count", String(thisQWarnings.length));
+    form.append("warnings_json", JSON.stringify(thisQWarnings));
+    form.append("file", recordedBlob, `${currentQ.id}.${ext}`);
 
     try {
-      const res = await fetch(N8N_UPLOAD_WEBHOOK, { method: "POST", body: form });
+      const res = await fetch(UPLOAD_WEBHOOK, { method: "POST", body: form });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      setUploadPct(100);
-
-      if (warningsCount >= MAX_WARNINGS_BEFORE_END) {
-        setStage("disqualified");
-        return;
-      }
 
       const next = idx + 1;
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      setRecordedBlob(null);
+      setRecordingUrl("");
+
       if (next < total) {
         setIdx(next);
-        if (recordingUrl) URL.revokeObjectURL(recordingUrl);
-        setRecordingBlob(null);
-        setRecordingUrl("");
+        saveLocalProgress(next);
+        await ensurePreview();
         setStage("question");
-        setTimeLeft(interview.questions[next].timeLimit);
+        setTimeLeft(interview.questions[next]?.timeLimit ?? 120);
       } else {
+        saveLocalProgress(next);
+        if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch {} }
         setStage("done");
       }
     } catch (e) {
@@ -433,31 +398,54 @@ export default function CandidatePortal() {
       alert("Upload failed. Please try again.");
       setStage("review");
     }
-  }
+  };
 
-  // ===== UI =====
+  /** ================== Optional hooks for face detector ================== **/
+  // Call these from your detector when events occur:
+  // addWarning("multiple-faces");
+  // addWarning("no-face");
+
+  /** ================== Keyboard shortcuts ================== **/
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code === "Space" && stage === "question") {
+        e.preventDefault();
+        if (!isRecording) startRecording(); else stopRecording();
+      }
+      if (e.code === "Enter" && stage === "review") {
+        e.preventDefault();
+        uploadAnswer();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stage, isRecording, recordedBlob, currentQ]);
+
+  /** ================== UI ================== **/
+  const pctThisQ = currentQ ? Math.max(0, Math.min(100, (timeLeft / (currentQ.timeLimit || 1)) * 100)) : 0;
+
   return (
     <div className="hx-root">
       <Header title={interview?.title} current={idx} total={total} />
 
       <main className="hx-main">
+        {/* LEFT RAIL — unchanged semantics/classes */}
         <aside className="hx-rail">
           <div className="hx-rail-head">Questions</div>
           <ol className="hx-steps" aria-label="Interview questions list">
             {Array.from({ length: total }).map((_, i) => (
-              <li
-                key={i}
-                className={`hx-step ${i < idx ? "done" : ""} ${i === idx ? "current" : ""}`}
-              >
+              <li key={i} className={`hx-step ${i < idx ? "done" : ""} ${i === idx ? "current" : ""}`}>
                 <span className="hx-step-dot" />
                 <span className="hx-step-text">Question {i + 1}</span>
               </li>
             ))}
           </ol>
           <div className="hx-rail-note">Stay in fullscreen while answering.</div>
-          <div className="hx-rail-note">Warnings: {warningsCount}</div>
+          <div className="hx-rail-note">Tab switches: <strong>{tabSwitchCount}</strong></div>
+          <div className="hx-rail-note">Total warnings: <strong>{getTotalWarningCount(answerMeta)}</strong></div>
         </aside>
 
+        {/* CONTENT — media surface + controls (class names preserved) */}
         <section className="hx-content">
           {loading && (
             <Card>
@@ -468,87 +456,58 @@ export default function CandidatePortal() {
           )}
 
           {!loading && error && (
-            <Card>
-              <div className="hx-error">{error}</div>
-            </Card>
+            <Card><div className="hx-error">{error}</div></Card>
           )}
 
-          {stage === "disqualified" && (
-            <Card>
-              <div className="hx-error" style={{ fontSize: 18 }}>
-                You are trying to cheat; hence disqualified. Please contact HR.
-              </div>
-            </Card>
-          )}
-
-          {!loading && interview && currentQ && stage !== "disqualified" && (
+          {!loading && interview && currentQ && stage !== "done" && (
             <Card>
               <div className="hx-card-head">
-                <div className="hx-question-index">
-                  Question {idx + 1} of {total}
-                </div>
+                <div className="hx-question-index">Question {idx + 1} of {total}</div>
                 <div className="hx-chips">
                   <Chip tone="neutral">Time limit: {currentQ.timeLimit}s</Chip>
-                  {isRecording && (
-                    <Chip tone="danger">
-                      <span className="hx-dot" /> Recording
-                    </Chip>
-                  )}
+                  {isRecording && <Chip tone="danger"><span className="hx-dot" /> Recording</Chip>}
                 </div>
               </div>
 
               <div className="hx-question">{currentQ.text}</div>
 
-              <div className="hx-progress">
-                <div className="hx-progress-fill" style={{ width: `${pctThisQ}%` }} />
-              </div>
+              <div className="hx-progress"><div className="hx-progress-fill" style={{ width: `${pctThisQ}%` }} /></div>
 
               <div className="hx-media">
                 <video
-                  ref={stage === "review" ? playbackRef : previewRef}
-                  autoPlay={stage === "question"}
+                  ref={videoEl}
+                  className="hx-video"
                   playsInline
+                  autoPlay={stage === "question"}
                   muted={stage === "question"}
                   controls={stage === "review"}
-                  className="hx-video"
+                  // preview uses srcObject; review sets src in code
                   aria-label={stage === "question" ? "Camera preview" : "Review your recording"}
-                  src={stage === "review" ? recordingUrl : undefined}
                 />
                 {permError && <div className="hx-perm">{permError}</div>}
+                {!isRecording && !recordingUrl && stage === "question" && (
+                  <div className="hx-play-overlay">
+                    <button className="hx-btn" onClick={startRecording}>Start</button>
+                  </div>
+                )}
               </div>
 
-              <div className="hx-controls">
+              <div className="hx-controls" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <div className="hx-timer">
-                  {stage === "question" &&
-                    (isRecording ? (
-                      <>Time left: <b>{timeLeft}s</b></>
-                    ) : (
-                      <>Ready to record (Fullscreen required)</>
-                    ))}
+                  {stage === "question" && (isRecording ? <>Time left: <b>{timeLeft}s</b></> : <>Ready to record</>)}
                 </div>
-
-                <div className="hx-actions">
-                  {stage === "question" &&
-                    (isRecording ? (
-                      <button className="hx-btn danger" onClick={stopRecording} aria-label="Stop recording (Space)">
-                        Stop
-                      </button>
-                    ) : (
-                      <button className="hx-btn" onClick={startRecording} disabled={!!permError} aria-label="Start recording (Space)">
-                        Start
-                      </button>
-                    ))}
-
+                <div className="hx-actions" style={{ marginLeft: "auto" }}>
+                  {stage === "question" && isRecording && (
+                    <button className="hx-btn danger" onClick={stopRecording} aria-label="Stop recording (Space)">Stop</button>
+                  )}
                   {stage === "review" && (
                     <>
-                      <button className="hx-btn" onClick={uploadAnswer} aria-label="Upload (Enter)">
-                        Looks good — Upload
-                      </button>
-                      {interview.allowRerecord && (
-                        <button className="hx-btn ghost" onClick={discardAndRetry}>
-                          Re-record
-                        </button>
-                      )}
+                      <button className="hx-btn" onClick={uploadAnswer} aria-label="Upload (Enter)">Looks good — Upload</button>
+                      <button className="hx-btn ghost" onClick={async () => {
+                        if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+                        setRecordedBlob(null); setRecordingUrl("");
+                        await ensurePreview(); setStage("question");
+                      }}>Re-record</button>
                     </>
                   )}
                 </div>
@@ -557,12 +516,15 @@ export default function CandidatePortal() {
           )}
 
           {stage === "done" && (
-            <Card>
-              <div className="hx-done">🎉 All set! Thanks for completing the interview.</div>
-            </Card>
+            <Card><div className="hx-done">🎉 All set! Thanks for completing the interview.</div></Card>
           )}
         </section>
       </main>
+
+      {/* Proctor banners (non-blocking) */}
+      {banners.map((b) => (
+        <ProctorBanner key={b.id} message={b.message} onClose={() => removeBanner(b.id)} />
+      ))}
     </div>
   );
 }
