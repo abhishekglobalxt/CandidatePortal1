@@ -428,6 +428,7 @@ export default function CandidatePortal() {
         setTimeLeft(interview.questions[next]?.timeLimit ?? 120);
       } else {
         saveLocalProgress(next);
+        setIdx(total);
         if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch {} }
         setStage("done");
       }
