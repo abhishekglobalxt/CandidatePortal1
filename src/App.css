@@ -338,3 +338,9 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   margin: 20px auto;
   padding: 0 16px;
 }
+.gx-actions-left {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;   /* centers the button */
+  width: 100%;
+}
