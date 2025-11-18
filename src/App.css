@@ -273,3 +273,68 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
 .gx-field {
   margin: 10px 0;
 }
+/*----------------------- */
+/* Card: two columns aligned at the top */
+.gx-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 18px;
+  align-items: flex-start;          /* <-- headings line up */
+  padding: 18px 22px;
+}
+
+/* Headings & sub text – same vertical rhythm on both sides */
+.gx-left h2,
+.gx-right h2 {
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+
+.gx-left .gx-sub,
+.gx-right .gx-sub {
+  margin-bottom: 12px;
+}
+
+/* Slightly smaller video so whole card fits without scroll */
+.gx-video-surface {
+  height: 220px;
+}
+
+/* Left actions: button under video, no float */
+.gx-actions-left {
+  margin-top: 10px;
+}
+
+.gx-actions-left .gx-btn {
+  min-width: 220px;
+}
+
+/* Status pills nicely centered under the meter */
+.gx-status {
+  margin-top: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Right form fields a bit tighter */
+.gx-field {
+  margin: 10px 0;
+}
+
+/* Center the Submit button */
+.gx-actions-right {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.gx-actions-right .gx-btn.primary {
+  min-width: 210px;
+}
+
+/* Optional: keep overall container compact */
+.gx-container {
+  max-width: 1040px;
+  margin: 20px auto;
+  padding: 0 16px;
+}
