@@ -222,3 +222,54 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   .gx-card{grid-template-columns:1fr; padding:22px}
   .gx-video-surface{height:260px}
 }
+/* Overall page spacing */
+.gx-container {
+  max-width: 1040px;
+  margin: 20px auto;
+  padding: 0 16px;
+}
+
+/* Glass card – a bit tighter */
+.gx-card {
+  padding: 18px 22px;
+  gap: 18px;
+}
+
+/* Video tile shorter */
+.gx-video-surface {
+  height: 230px;          /* was ~300+ */
+}
+
+/* Reduce vertical gaps on the left */
+.gx-left h2 {
+  margin-bottom: 6px;
+}
+
+.gx-left .gx-sub {
+  margin-bottom: 10px;
+}
+
+.gx-meter {
+  margin-top: 8px;
+}
+
+.gx-status {
+  margin-top: 6px;
+}
+
+.gx-hint {
+  margin-top: 6px;
+}
+
+/* Right side fields a bit tighter */
+.gx-right h2 {
+  margin-bottom: 6px;
+}
+
+.gx-right .gx-sub {
+  margin-bottom: 10px;
+}
+
+.gx-field {
+  margin: 10px 0;
+}
