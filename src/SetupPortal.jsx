@@ -50,7 +50,7 @@ export default function SetupPortal() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
 
-  // NEW: verification doc state
+  // verification doc state
   const [countryCode, setCountryCode] = useState(""); // e.g. "IN"
   const [geoError, setGeoError] = useState("");
   const [docType, setDocType] = useState(""); // "aadhaar" | "passport" | "driving_license"
@@ -148,7 +148,7 @@ export default function SetupPortal() {
 
   const stopTest = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
+    rafRefRef = null;
 
     try {
       analyserRef.current?.disconnect();
@@ -222,7 +222,7 @@ export default function SetupPortal() {
       form.append("mic_ok", String(micOk));
       form.append("user_agent", navigator.userAgent);
 
-      // NEW: verification fields for n8n
+      // verification fields for n8n
       form.append("country_code", countryCode || "");
       form.append("verification_doc_type", docType);
       form.append("verification_document", docFile, docFile.name);
@@ -356,7 +356,6 @@ export default function SetupPortal() {
               Please confirm your details and upload a valid ID as per your region.
             </p>
 
-            {/* Floating labels for text/email only */}
             <div className="gx-field">
               <input
                 id="fullName"
@@ -383,7 +382,7 @@ export default function SetupPortal() {
               <label htmlFor="email">Email</label>
             </div>
 
-            {/* Doc type: static label + select in a .file block -> no floating overlap */}
+            {/* Doc type selector for non-India users */}
             {!isIndia && (
               <div className="gx-field file">
                 <label htmlFor="verification_type">Verification document type</label>
@@ -402,17 +401,19 @@ export default function SetupPortal() {
 
             {geoError && <div className="gx-banner error">{geoError}</div>}
 
-            {/* File upload – label above, no floating */}
-            <div className="gx-field file">
-              <label htmlFor="verification_document">{docLabel}</label>
-              <input
-                id="verification_document"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                required
-              />
-            </div>
+            {/* File upload only after docType is known */}
+            {docType && (
+              <div className="gx-field file">
+                <label htmlFor="verification_document">{docLabel}</label>
+                <input
+                  id="verification_document"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                  required
+                />
+              </div>
+            )}
 
             {submitError && <div className="gx-banner error">{submitError}</div>}
 
