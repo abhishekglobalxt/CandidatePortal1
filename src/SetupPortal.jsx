@@ -94,7 +94,9 @@ export default function SetupPortal() {
 
   // -------- Camera & mic test --------
   const startTest = async () => {
+    if (isTesting) return; // guard against double-clicks
     setPermError("");
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -104,23 +106,27 @@ export default function SetupPortal() {
           autoGainControl: true,
         },
       });
+
       streamRef.current = stream;
       setCamOk(stream.getVideoTracks().length > 0);
       setMicOk(stream.getAudioTracks().length > 0);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // autoplay can still be blocked, but we ignore the error and let user click inside video if needed
         await videoRef.current.play().catch(() => {});
       }
-      setIsTesting(true);
 
-      audioCtxRef.current = new (window.AudioContext ||
-        window.webkitAudioContext)();
-      const source = audioCtxRef.current.createMediaStreamSource(stream);
-      analyserRef.current = audioCtxRef.current.createAnalyser();
-      analyserRef.current.fftSize = 1024;
-      source.connect(analyserRef.current);
-      dataArrayRef.current = new Uint8Array(analyserRef.current.fftSize);
+      // audio meter
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyserRef.current = analyser;
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.fftSize);
+      dataArrayRef.current = dataArray;
 
       const tick = () => {
         if (!analyserRef.current || !dataArrayRef.current) return;
@@ -136,6 +142,8 @@ export default function SetupPortal() {
         if (lvl > 0.03) setMicOk(true);
         rafRef.current = requestAnimationFrame(tick);
       };
+
+      setIsTesting(true);
       tick();
     } catch (err) {
       console.error(err);
@@ -147,23 +155,37 @@ export default function SetupPortal() {
   };
 
   const stopTest = () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRefRef = null;
+    // stop animation loop
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
 
+    // close audio context
     try {
-      analyserRef.current?.disconnect();
+      analyserRef.current && analyserRef.current.disconnect();
     } catch {}
     try {
-      audioCtxRef.current?.close();
+      audioCtxRef.current && audioCtxRef.current.close();
     } catch {}
 
     analyserRef.current = null;
     audioCtxRef.current = null;
+    dataArrayRef.current = null;
 
+    // stop media tracks
     const s = streamRef.current;
-    if (s) s.getTracks().forEach((t) => t.stop());
+    if (s) {
+      s.getTracks().forEach((t) => t.stop());
+    }
     streamRef.current = null;
 
+    // clear video
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // reset state
     setIsTesting(false);
     setAudioLevel(0);
     setCamOk(false);
@@ -171,7 +193,10 @@ export default function SetupPortal() {
   };
 
   useEffect(() => {
-    return () => stopTest();
+    return () => {
+      // cleanup on unmount
+      stopTest();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -309,11 +334,17 @@ export default function SetupPortal() {
                 ref={videoRef}
                 playsInline
                 muted
+                autoPlay={false}
                 className="gx-video"
               />
+              <div className="gx-soft-shine" />
+            </div>
+
+            {/* actions under video, non-floating */}
+            <div className="gx-actions-left">
               {!isTesting ? (
                 <button
-                  className="gx-btn primary floating"
+                  className="gx-btn primary"
                   type="button"
                   onClick={startTest}
                 >
@@ -321,14 +352,13 @@ export default function SetupPortal() {
                 </button>
               ) : (
                 <button
-                  className="gx-btn subtle floating"
+                  className="gx-btn subtle"
                   type="button"
                   onClick={stopTest}
                 >
                   Stop test
                 </button>
               )}
-              <div className="gx-soft-shine" />
             </div>
 
             <div className="gx-meter">
@@ -417,7 +447,7 @@ export default function SetupPortal() {
 
             {submitError && <div className="gx-banner error">{submitError}</div>}
 
-            <div className="gx-actions">
+            <div className="gx-actions gx-actions-right">
               <button className="gx-btn primary" disabled={submitting}>
                 {submitting ? "Submitting…" : "Submit & continue"}
               </button>
