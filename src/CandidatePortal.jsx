@@ -134,12 +134,24 @@ export default function CandidatePortal() {
 
         let item = null;
         try {
-          const res1 = await fetch(`${INTERVIEWS_API.replace(/\/$/, "")}/${encodeURIComponent(interviewId)}`);
+          const res1 = await fetch(
+            `${INTERVIEWS_API.replace(/\/$/, "")}/${encodeURIComponent(interviewId)}`,
+            {
+              headers: {
+                "x-api-key": import.meta.env.VITE_INTERVIEW_API_KEY
+              }
+            }
+          );
+                
           if (res1.ok) item = await res1.json();
         } catch {}
 
         if (!item) {
-          const res2 = await fetch(INTERVIEWS_API);
+          const res2 = await fetch(INTERVIEWS_API, {
+            headers: {
+              "x-api-key": import.meta.env.VITE_INTERVIEW_API_KEY
+            }
+          });
           if (!res2.ok) throw new Error(`API ${res2.status}`);
           const list = await res2.json();
           item = Array.isArray(list) ? list.find(i => i.id === interviewId) : null;
