@@ -37,7 +37,7 @@ useEffect(() => {
     }
 
     try {
-      const res = await fetch(`/api/setup?token=${token}`);
+      const res = await fetch(`https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`);
       const data = await res.json();
 
       if (!res.ok) {
