@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Link Not Found – HireXpert</title>
+
+<!-- Tailwind (CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Lottie Animation -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.9.6/lottie.min.js"></script>
+
+<style>
+    body {
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+        min-height: 100vh;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.8s ease-out forwards;
+        opacity: 0;
+    }
+
+    @keyframes fadeIn {
+        to { opacity: 1; transform: translateY(0); }
+        from { opacity: 0; transform: translateY(15px); }
+    }
+
+    .floating {
+        animation: floating 3s ease-in-out infinite;
+    }
+
+    @keyframes floating {
+        0% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0); }
+    }
+</style>
+</head>
+
+<body class="flex items-center justify-center px-6">
+
+<div class="max-w-lg w-full bg-white rounded-2xl shadow-xl p-10 fade-in text-center border border-indigo-100">
+
+    <!-- Lottie Container -->
+    <div id="lottieContainer" class="mx-auto h-48 w-48 floating mb-6"></div>
+
+    <h1 class="text-3xl font-bold text-gray-900 mb-3">Interview Link Not Found</h1>
+
+    <p class="text-gray-600 leading-relaxed mb-6">
+        The interview you're trying to access cannot be opened. This may happen if:
+    </p>
+
+    <ul class="text-left text-gray-700 font-medium space-y-2 mb-6">
+        <li>• The link has already been used once.</li>
+        <li>• The link has expired (for security reasons).</li>
+        <li>• The interview was removed or is no longer active.</li>
+    </ul>
+
+    <p class="text-gray-500 text-sm mb-8">
+        If you believe this is a mistake and you have not opened this link yet,  
+        please contact your <span class="font-semibold text-indigo-600">HR team</span> or  
+        <span class="font-semibold text-indigo-600">Hiring Coordinator</span>.
+    </p>
+
+    <a href="https://hirexpert.ai"
+       class="inline-block bg-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-semibold shadow hover:bg-indigo-700 transition">
+        Go Back to Homepage
+    </a>
+</div>
+
+<script>
+    // Load animated Lottie icon
+    lottie.loadAnimation({
+        container: document.getElementById("lottieContainer"),
+        renderer: "svg",
+        loop: true,
+        autoplay: true,
+        path: "https://assets9.lottiefiles.com/private_files/lf30_editor_bpuvcpnr.json"
+    });
+
+    // Optional: dynamically change the heading depending on reason
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("reason");
+
+    const title = document.querySelector("h1");
+
+    if (reason === "expired") {
+        title.innerText = "This Link Has Expired";
+    } 
+    else if (reason === "used") {
+        title.innerText = "This Link Was Already Used";
+    } 
+    else if (reason === "invalid") {
+        title.innerText = "Invalid Interview Link";
+    }
+    else {
+        title.innerText = "Interview Link Not Found";
+    }
+</script>
+
+</body>
+</html>
