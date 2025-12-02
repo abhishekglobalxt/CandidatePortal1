@@ -7,6 +7,8 @@ const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 // simple client-side GeoIP (IP -> country)
 const GEOIP_URL = "https://ipapi.co/json/";
 
+
+
 function useQuery() {
   const p = new URLSearchParams(window.location.search);
   return Object.fromEntries(p.entries());
@@ -22,14 +24,57 @@ function Pill({ ok, label }) {
 }
 
 export default function SetupPortal() {
-  const { id: interviewIdParam = "" } = useQuery();
+  const { token } = useQuery();
+  const [interviewId, setInterviewId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // -------- Token validation & interview ID fetch --------
+useEffect(() => {
+  const validate = async () => {
+    if (!token) {
+      window.location.href = "/expired.html?reason=missing";
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/setup?token=${token}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === "TOKEN_EXPIRED")
+          return (window.location.href = "/expired.html?reason=expired");
+        if (data.error === "TOKEN_USED")
+          return (window.location.href = "/expired.html?reason=used");
+        if (data.error === "INVALID_TOKEN")
+          return (window.location.href = "/expired.html?reason=invalid");
+
+        return (window.location.href = "/expired.html?reason=unknown");
+      }
+
+      setInterviewId(data.interviewId);
+      sessionStorage.setItem("gx_interview_id", data.interviewId);
+      sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
+
+    } catch (e) {
+      window.location.href = "/expired.html?reason=error";
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  validate();
+}, [token]);
+
+if (loading) {
+  return <div className="gx-page"><p>Validating your secure link…</p></div>;
+}
 
   // persist id for handoff to CandidatePortal
   useEffect(() => {
-    if (interviewIdParam) {
-      sessionStorage.setItem("gx_interview_id", interviewIdParam);
+    if (interviewId) {
+      sessionStorage.setItem("gx_interview_id", interviewId);
     }
-  }, [interviewIdParam]);
+  }, [interviewId]);
 
   // media / audio meter refs
   const videoRef = useRef(null);
@@ -236,8 +281,8 @@ export default function SetupPortal() {
 
     setSubmitting(true);
     try {
-      const iid =
-        interviewIdParam || sessionStorage.getItem("gx_interview_id") || "";
+        const iid = interviewId;
+
 
       const form = new FormData();
       form.append("name", name);
