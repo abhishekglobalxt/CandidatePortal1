@@ -330,10 +330,9 @@ if (loading) {
       );
       sessionStorage.setItem("gx_interview_id", iid);
 
-      const nextUrl = `/interview${
-        iid ? `?id=${encodeURIComponent(iid)}` : ""
-      }`;
-      window.location.assign(nextUrl);
+    const nextUrl = `/interview?id=${encodeURIComponent(iid)}&token=${encodeURIComponent(token)}`;
+    window.location.assign(nextUrl);
+
     } catch (err) {
       console.error(err);
       setSubmitError(
