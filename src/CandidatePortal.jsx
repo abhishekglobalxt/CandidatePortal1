@@ -60,21 +60,33 @@ function ProctorBanner({ message, onClose }) {
 /** ================== Main Component ================== **/
 export default function CandidatePortal() {
   /** -------- Session guard -------- **/
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const interviewIdParam = params.get("id") || "";
-    const setup = sessionStorage.getItem("gx_candidate");
-    if (!setup) window.location.replace(`/setup${interviewIdParam ? `?id=${encodeURIComponent(interviewIdParam)}` : ""}`);
-  }, []);
-
   const params = new URLSearchParams(window.location.search);
   const interviewId = params.get("id") || "";
-
+  const token = params.get("token") || "";
+  
+  // -------- Consume Interview Token (one-time use) --------
+  useEffect(() => {
+    if (!token) return;
+  
+    (async () => {
+      try {
+        await fetch("https://hirexpert-1ecv.onrender.com/api/consume-token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ token }),
+        });
+      } catch (err) {
+        console.error("Token consume error:", err);
+      }
+    })();
+  }, [token]);
+  
   const candidate = useMemo(() => {
-    try { return JSON.parse(sessionStorage.getItem("gx_candidate") || "{}"); }
-    catch { return {}; }
+      try { return JSON.parse(sessionStorage.getItem("gx_candidate") || "{}"); }
+      catch { return {}; }
   }, []);
-
   /** -------- Data state -------- **/
   const [loading, setLoading] = useState(true);
   const [interview, setInterview] = useState(null);
