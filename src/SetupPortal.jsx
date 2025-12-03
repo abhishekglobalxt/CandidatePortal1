@@ -7,6 +7,8 @@ const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 // simple client-side GeoIP (IP -> country)
 const GEOIP_URL = "https://ipapi.co/json/";
 
+
+
 function useQuery() {
   const p = new URLSearchParams(window.location.search);
   return Object.fromEntries(p.entries());
@@ -22,14 +24,111 @@ function Pill({ ok, label }) {
 }
 
 export default function SetupPortal() {
-  const { id: interviewIdParam = "" } = useQuery();
+  const { token } = useQuery();
+  const [interviewId, setInterviewId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+// -------- Token validation & interview ID fetch (debugging version) --------
+useEffect(() => {
+  const validate = async () => {
+    if (!token) {
+      console.warn("[setup] missing token, redirecting.");
+      window.location.href = "/expired.html?reason=missing";
+      return;
+    }
+
+    try {
+      console.log("[setup] fetching /api/setup for token:", token);
+
+      const res = await fetch(`https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`, {
+        // add credentials only if you actually need cookies; otherwise omit
+        // credentials: "include"
+      });
+
+      console.log("[setup] fetch completed. status =", res.status, "ok =", res.ok);
+
+      // Read the raw body first for best debugging
+      const rawText = await res.text();
+      console.log("[setup] raw response text:", rawText.slice(0, 2000)); // limit length
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error("[setup] JSON parse failed:", parseErr);
+        // show the raw response on page for debugging (avoid immediate redirect)
+        document.body.innerHTML = "<pre style='white-space:pre-wrap; font-family: monospace; padding:20px;'>RAW RESPONSE:\\n" 
+          + rawText.replace(/</g, "&lt;") + "</pre>";
+        return;
+      }
+
+      console.log("[setup] parsed data:", data);
+
+      if (!res.ok) {
+        console.warn("[setup] res.ok === false, server returned error:", data);
+        // Prefer a coded redirect for known errors, otherwise show debug info
+        if (data && data.error === "TOKEN_EXPIRED") {
+          window.location.href = "/expired.html?reason=expired"; return;
+        }
+        if (data && data.error === "TOKEN_USED") {
+          window.location.href = "/expired.html?reason=used"; return;
+        }
+        if (data && data.error === "INVALID_TOKEN") {
+          window.location.href = "/expired.html?reason=invalid"; return;
+        }
+
+        // Unknown server error — show debug details instead of redirecting immediately
+        console.error("[setup] unknown server error; not redirecting automatically.");
+        document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
+          <h2>Debug: server returned an error</h2>
+          <pre style="white-space:pre-wrap">${JSON.stringify(data, null, 2)}</pre>
+          <p>Check console & network tab. If you want to force expired page, open <code>/expired.html?reason=unknown</code>.</p>
+        </div>`;
+        return;
+      }
+
+      // OK path
+      if (!data || !data.success) {
+        console.warn("[setup] server returned a success=false or no payload:", data);
+        // show debug
+        document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
+          <h2>Debug: unexpected payload</h2><pre>${JSON.stringify(data, null, 2)}</pre>
+        </div>`;
+        return;
+      }
+
+      // All good: set interview id etc.
+      console.log("[setup] token valid, interviewId =", data.interviewId);
+      setInterviewId(data.interviewId);
+      sessionStorage.setItem("gx_interview_id", data.interviewId);
+      sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
+
+    } catch (err) {
+      console.error("[setup] fetch threw:", err);
+      // show a friendly error and the raw error
+      document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
+        <h2>Network or server error</h2><pre>${String(err)}</pre>
+        <p>Open the console/network tab for details.</p>
+      </div>`;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  validate();
+}, [token]);
+
+
+if (loading) {
+  return <div className="gx-page"><p>Validating your secure link…</p></div>;
+}
 
   // persist id for handoff to CandidatePortal
   useEffect(() => {
-    if (interviewIdParam) {
-      sessionStorage.setItem("gx_interview_id", interviewIdParam);
+    if (interviewId) {
+      sessionStorage.setItem("gx_interview_id", interviewId);
     }
-  }, [interviewIdParam]);
+  }, [interviewId]);
 
   // media / audio meter refs
   const videoRef = useRef(null);
@@ -236,8 +335,8 @@ export default function SetupPortal() {
 
     setSubmitting(true);
     try {
-      const iid =
-        interviewIdParam || sessionStorage.getItem("gx_interview_id") || "";
+        const iid = interviewId;
+
 
       const form = new FormData();
       form.append("name", name);
@@ -285,10 +384,9 @@ export default function SetupPortal() {
       );
       sessionStorage.setItem("gx_interview_id", iid);
 
-      const nextUrl = `/interview${
-        iid ? `?id=${encodeURIComponent(iid)}` : ""
-      }`;
-      window.location.assign(nextUrl);
+    const nextUrl = `/interview?id=${encodeURIComponent(iid)}&token=${encodeURIComponent(token)}`;
+    window.location.assign(nextUrl);
+
     } catch (err) {
       console.error(err);
       setSubmitError(
