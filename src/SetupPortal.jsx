@@ -506,8 +506,10 @@ return (
               stored securely.
             </p>
           </form>
-        </section>
-      </main>
-    </div>
-  );
+       </section>
+        </main>
+      </>
+    )}
+  </div>
+);
 }
