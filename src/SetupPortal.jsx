@@ -28,95 +28,47 @@ export default function SetupPortal() {
   const [interviewId, setInterviewId] = useState(null);
   const [loading, setLoading] = useState(true);
 
-// -------- Token validation & interview ID fetch (debugging version) --------
-useEffect(() => {
-  const validate = async () => {
-    if (!token) {
-      console.warn("[setup] missing token, redirecting.");
-      window.location.href = "/expired.html?reason=missing";
-      return;
-    }
+  // -------- Token validation & interview ID fetch (debug version) --------
+  useEffect(() => {
+    const validate = async () => {
+      if (!token) {
+        console.warn("[setup] missing token, redirecting.");
+        window.location.href = "/expired.html?reason=missing";
+        return;
+      }
 
-    try {
-      console.log("[setup] fetching /api/setup for token:", token);
-
-      const res = await fetch(`https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`, {
-        // add credentials only if you actually need cookies; otherwise omit
-        // credentials: "include"
-      });
-
-      console.log("[setup] fetch completed. status =", res.status, "ok =", res.ok);
-
-      // Read the raw body first for best debugging
-      const rawText = await res.text();
-      console.log("[setup] raw response text:", rawText.slice(0, 2000)); // limit length
-
-      let data;
       try {
-        data = JSON.parse(rawText);
-      } catch (parseErr) {
-        console.error("[setup] JSON parse failed:", parseErr);
-        // show the raw response on page for debugging (avoid immediate redirect)
-        document.body.innerHTML = "<pre style='white-space:pre-wrap; font-family: monospace; padding:20px;'>RAW RESPONSE:\\n" 
-          + rawText.replace(/</g, "&lt;") + "</pre>";
-        return;
-      }
+        console.log("[setup] fetching /api/setup for token:", token);
+        const res = await fetch(`https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`, {
+          mode: "cors"
+        });
 
-      console.log("[setup] parsed data:", data);
+        const raw = await res.text();
+        console.log("[setup] raw response text:", raw);
 
-      if (!res.ok) {
-        console.warn("[setup] res.ok === false, server returned error:", data);
-        // Prefer a coded redirect for known errors, otherwise show debug info
-        if (data && data.error === "TOKEN_EXPIRED") {
-          window.location.href = "/expired.html?reason=expired"; return;
-        }
-        if (data && data.error === "TOKEN_USED") {
-          window.location.href = "/expired.html?reason=used"; return;
-        }
-        if (data && data.error === "INVALID_TOKEN") {
-          window.location.href = "/expired.html?reason=invalid"; return;
+        const data = JSON.parse(raw);
+        console.log("[setup] parsed data:", data);
+
+        if (!res.ok) {
+          window.location.href = `/expired.html?reason=${data.error || "unknown"}`;
+          return;
         }
 
-        // Unknown server error — show debug details instead of redirecting immediately
-        console.error("[setup] unknown server error; not redirecting automatically.");
-        document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
-          <h2>Debug: server returned an error</h2>
-          <pre style="white-space:pre-wrap">${JSON.stringify(data, null, 2)}</pre>
-          <p>Check console & network tab. If you want to force expired page, open <code>/expired.html?reason=unknown</code>.</p>
-        </div>`;
-        return;
+        setInterviewId(data.interviewId);
+        sessionStorage.setItem("gx_interview_id", data.interviewId);
+        sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
+
+      } catch (err) {
+        console.error("[setup] error:", err);
+        window.location.href = "/expired.html?reason=error";
+      } finally {
+        setLoading(false);
       }
+    };
 
-      // OK path
-      if (!data || !data.success) {
-        console.warn("[setup] server returned a success=false or no payload:", data);
-        // show debug
-        document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
-          <h2>Debug: unexpected payload</h2><pre>${JSON.stringify(data, null, 2)}</pre>
-        </div>`;
-        return;
-      }
+    validate();
+  }, [token]);
 
-      // All good: set interview id etc.
-      console.log("[setup] token valid, interviewId =", data.interviewId);
-      setInterviewId(data.interviewId);
-      sessionStorage.setItem("gx_interview_id", data.interviewId);
-      sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
-
-    } catch (err) {
-      console.error("[setup] fetch threw:", err);
-      // show a friendly error and the raw error
-      document.body.innerHTML = `<div style="padding:30px;font-family:Inter,Arial,Helvetica,sans-serif">
-        <h2>Network or server error</h2><pre>${String(err)}</pre>
-        <p>Open the console/network tab for details.</p>
-      </div>`;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  validate();
-}, [token]);
 
 
 if (loading) {
