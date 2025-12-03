@@ -69,12 +69,6 @@ export default function SetupPortal() {
     validate();
   }, [token]);
 
-
-
-if (loading) {
-  return <div className="gx-page"><p>Validating your secure link…</p></div>;
-}
-
   // persist id for handoff to CandidatePortal
   useEffect(() => {
     if (interviewId) {
@@ -360,18 +354,22 @@ if (loading) {
       ? "Upload Driving License (PDF / JPG / PNG)"
       : "Upload verification document (PDF / JPG / PNG)";
 
-  return (
-    <div className="gx-page">
-      <header className="gx-topbar">
-        <div className="brand">
-          <span className="logo-dot" />
-          <span className="brand-name">GlobalXperts</span>
-          <span className="brand-sub">Pre-interview check</span>
-        </div>
-      </header>
+return (
+  <div className="gx-page">
+    {loading ? (
+      <p>Validating your secure link…</p>
+    ) : (
+      <>
+        <header className="gx-topbar">
+          <div className="brand">
+            <span className="logo-dot" />
+            <span className="brand-name">GlobalXperts</span>
+            <span className="brand-sub">Pre-interview check</span>
+          </div>
+        </header>
 
-      <main className="gx-container">
-        <section className="gx-card">
+        <main className="gx-container">
+          <section className="gx-card">
           {/* LEFT: camera & mic */}
           <div className="gx-left">
             <h2>Check your camera &amp; mic</h2>
