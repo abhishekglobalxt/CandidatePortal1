@@ -2,7 +2,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }
 body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f6f7fb; color: #0b1320; }
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 /* ===== Candidate Portal – header, layout & interview room ===== */
 
 /* Root wrapper for candidate experience */
@@ -416,7 +416,7 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Ari
   color: #0f766e;
 }
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 .hx-logo {
   height: 32px;   /* adjust as needed */
   object-fit: contain;
