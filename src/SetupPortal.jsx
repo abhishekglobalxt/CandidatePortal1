@@ -348,10 +348,7 @@ export default function SetupPortal() {
           <div className="hx-card-header">
             <div>
               <h1>Let’s make sure you’re ready</h1>
-              <p>
-                We’ll quickly verify your camera and microphone, then save your
-                details so you can start the interview without interruptions.
-              </p>
+              
             </div>
           </div>
 
