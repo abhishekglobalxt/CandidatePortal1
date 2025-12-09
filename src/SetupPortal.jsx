@@ -1,6 +1,7 @@
 // src/SetupPortal.jsx
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
+import gxLogo from "./assets/globalxperts-logo.png";
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
@@ -9,9 +10,9 @@ function useQuery() {
   return Object.fromEntries(p.entries());
 }
 
-function Pill({ ok, label }) {
+function StatusPill({ ok, label }) {
   return (
-    <span className={`gx-pill ${ok ? "ok" : ""}`}>
+    <span className={`hx-pill ${ok ? "ok" : "off"}`}>
       <span className="dot" />
       <span>{label}</span>
     </span>
@@ -21,12 +22,12 @@ function Pill({ ok, label }) {
 export default function SetupPortal() {
   const { token } = useQuery();
 
-  // basic secure link validation
+  // link / interview validation
   const [interviewId, setInterviewId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [linkError, setLinkError] = useState("");
 
-  // camera/mic refs
+  // camera / mic
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -34,28 +35,25 @@ export default function SetupPortal() {
   const rafRef = useRef(null);
   const dataArrayRef = useRef(null);
 
-  // UI state for test
   const [isTesting, setIsTesting] = useState(false);
   const [permError, setPermError] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
   const [camOk, setCamOk] = useState(false);
   const [micOk, setMicOk] = useState(false);
 
-  // form state
+  // form
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-
-  // resume upload state
   const [resumeFile, setResumeFile] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  // -------- Validate token & fetch interview --------
+  // -------------------- validate token & fetch interview --------------------
   useEffect(() => {
     const validate = async () => {
       if (!token) {
-        setLinkError("Missing or invalid link.");
+        setLinkError("Missing or invalid interview link.");
         setLoading(false);
         return;
       }
@@ -79,7 +77,7 @@ export default function SetupPortal() {
           setLinkError(
             reason === "expired"
               ? "This interview link has expired."
-              : "We could not validate your interview link."
+              : "We couldn’t validate your interview link."
           );
           setLoading(false);
           return;
@@ -87,13 +85,16 @@ export default function SetupPortal() {
 
         setInterviewId(data.interviewId);
         sessionStorage.setItem("gx_interview_id", data.interviewId);
+
         if (data.candidateEmail) {
           sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
           setEmail(data.candidateEmail);
         }
       } catch (err) {
         console.error(err);
-        setLinkError("Unable to validate link. Please try again in a moment.");
+        setLinkError(
+          "We’re having trouble reaching the server. Please try again in a moment."
+        );
       } finally {
         setLoading(false);
       }
@@ -102,7 +103,7 @@ export default function SetupPortal() {
     validate();
   }, [token]);
 
-  // -------- Camera & mic test --------
+  // -------------------- camera & mic test --------------------
   const stopTest = () => {
     try {
       if (rafRef.current) {
@@ -156,12 +157,12 @@ export default function SetupPortal() {
         try {
           await videoRef.current.play();
         } catch {
-          // ignore autoplay issues
+          // autoplay issues can be ignored; user can click play
         }
       }
 
-      // audio meter
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioCtx = new (window.AudioContext ||
+        window.webkitAudioContext)();
       audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
@@ -204,7 +205,7 @@ export default function SetupPortal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // -------- Submit handler --------
+  // -------------------- form submit --------------------
   const onSubmit = async (e) => {
     e.preventDefault();
     setSubmitError("");
@@ -222,12 +223,12 @@ export default function SetupPortal() {
     );
     if (!okExt) {
       return setSubmitError(
-        "Resume must be a PDF or Word document (.doc or .docx)."
+        "Resume must be a PDF or Word document (.pdf, .doc, .docx)."
       );
     }
 
     if (!camOk || !micOk) {
-      return setSubmitError("Please complete the camera & mic test.");
+      return setSubmitError("Please complete the camera & mic test first.");
     }
 
     if (!SETUP_WEBHOOK) {
@@ -245,8 +246,6 @@ export default function SetupPortal() {
       form.append("cam_ok", String(camOk));
       form.append("mic_ok", String(micOk));
       form.append("user_agent", navigator.userAgent);
-
-      // resume field for n8n
       form.append("resume", resumeFile, resumeFile.name);
 
       const res = await fetch(SETUP_WEBHOOK, {
@@ -298,157 +297,207 @@ export default function SetupPortal() {
     }
   };
 
-  return (
-    <div className="gx-page">
-      {loading ? (
-        <p>Validating your secure link…</p>
-      ) : linkError ? (
-        <div className="gx-error-page">
-          <h1>Link problem</h1>
-          <p>{linkError}</p>
+  // -------------------- UI --------------------
+  if (loading) {
+    return (
+      <div className="hx-shell">
+        <div className="hx-loading-card">
+          <div className="hx-spinner" />
+          <p>Validating your secure interview link…</p>
         </div>
-      ) : (
-        <>
-          <header className="gx-header">
-            <div className="gx-logo-row">
-              <img
-                src="/globalxperts-logo.png"
-                alt="GlobalXperts"
-                className="gx-logo"
-              />
-              <span className="brand-name">GlobalXperts</span>
-              <span className="brand-sub">Pre-interview check</span>
+      </div>
+    );
+  }
+
+  if (linkError) {
+    return (
+      <div className="hx-shell">
+        <div className="hx-error-card">
+          <img src={gxLogo} alt="GlobalXperts" className="hx-logo-sm" />
+          <h1>We couldn’t open your interview</h1>
+          <p>{linkError}</p>
+          <p className="hx-muted">
+            If this keeps happening, please contact your recruiter and share a
+            screenshot of this page.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const resumeLabel = resumeFile ? resumeFile.name : "Click to upload or drag & drop";
+
+  return (
+    <div className="hx-shell">
+      <header className="hx-topbar">
+        <div className="hx-topbar-left">
+          <img src={gxLogo} alt="GlobalXperts" className="hx-logo" />
+          <div className="hx-topbar-text">
+            <span className="hx-brand">GlobalXperts</span>
+            <span className="hx-subbrand">One-Way Interview</span>
+          </div>
+        </div>
+        <div className="hx-step">
+          <span className="hx-step-label">Step 1 of 2</span>
+          <span className="hx-step-title">Pre-interview check</span>
+        </div>
+      </header>
+
+      <main className="hx-main-wrap">
+        <section className="hx-card-shell">
+          <div className="hx-card-header">
+            <div>
+              <h1>Let’s make sure you’re ready</h1>
+              <p>
+                We’ll quickly verify your camera and microphone, then save your
+                details so you can start the interview without interruptions.
+              </p>
             </div>
-          </header>
+          </div>
 
-          <main className="gx-container">
-            <section className="gx-card">
-              {/* LEFT: camera & mic */}
-              <div className="gx-left">
-                <h2>Check your camera &amp; mic</h2>
-                <p className="gx-sub">
-                  We’ll quickly verify that your camera and microphone are
-                  working properly.
-                </p>
+          <div className="hx-card-body">
+            {/* LEFT: camera & mic */}
+            <div className="hx-panel hx-panel-left">
+              <h2>Check your camera &amp; mic</h2>
+              <p className="hx-panel-sub">
+                Keep your face centered and speak normally. You’ll see the audio
+                bar move if your mic is working.
+              </p>
 
-                <div className="gx-video-surface">
-                  <video
-                    ref={videoRef}
-                    playsInline
-                    muted
-                    autoPlay={false}
-                    className="gx-video"
-                  />
-                  <div className="gx-soft-shine" />
+              <div className="hx-video-frame">
+                <div className="hx-video-gradient" />
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  autoPlay={false}
+                  className="hx-video-el"
+                />
+                <div className="hx-video-badge">
+                  {isTesting ? "Live preview" : "Preview paused"}
                 </div>
+              </div>
 
-                {/* actions under video, non-floating */}
-                <div className="gx-actions-left">
-                  {!isTesting ? (
-                    <button
-                      className="gx-btn primary"
-                      type="button"
-                      onClick={startTest}
-                    >
-                      Start camera &amp; mic test
-                    </button>
-                  ) : (
-                    <button
-                      className="gx-btn secondary"
-                      type="button"
-                      onClick={stopTest}
-                    >
-                      Stop test
-                    </button>
-                  )}
-                </div>
-
-                <div className="gx-meter">
+              <div className="hx-meter-row">
+                <div className="hx-meter-label">Mic activity</div>
+                <div className="hx-meter-bar">
                   <div
-                    className="fill"
+                    className="hx-meter-fill"
                     style={{ width: `${Math.round(audioLevel * 100)}%` }}
                   />
                 </div>
-
-                <div className="gx-status">
-                  <Pill ok={camOk} label="Camera" />
-                  <Pill ok={micOk} label="Mic" />
-                </div>
-
-                {permError && <div className="gx-banner error">{permError}</div>}
-                <p className="gx-hint">
-                  Speak “testing 1-2-3” — the bar should pulse when your mic is
-                  working.
-                </p>
               </div>
 
-              {/* RIGHT: candidate + resume */}
-              <form className="gx-right" onSubmit={onSubmit}>
-                <h2>Before you start, we need a quick check</h2>
-                <p className="gx-sub">
-                  Please confirm your details and upload your latest resume.
-                </p>
+              <div className="hx-status-row">
+                <StatusPill ok={camOk} label="Camera" />
+                <StatusPill ok={micOk} label="Mic" />
+              </div>
 
-                <div className="gx-field">
-                  <input
-                    id="fullName"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder=" "
-                    autoComplete="name"
-                    required
-                  />
-                  <label htmlFor="fullName">Full name</label>
-                </div>
+              {permError && (
+                <div className="hx-banner error">{permError}</div>
+              )}
 
-                <div className="gx-field">
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder=" "
-                    autoComplete="email"
-                    required
-                  />
-                  <label htmlFor="email">Email</label>
-                </div>
+              <div className="hx-actions-left">
+                {!isTesting ? (
+                  <button
+                    type="button"
+                    className="hx-btn primary"
+                    onClick={startTest}
+                  >
+                    Start camera &amp; mic test
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="hx-btn ghost"
+                    onClick={stopTest}
+                  >
+                    Stop test
+                  </button>
+                )}
+                <span className="hx-hint">
+                  Tip: if your browser asks for permission, choose{" "}
+                  <strong>Allow</strong>.
+                </span>
+              </div>
+            </div>
 
-                <div className="gx-field file">
-                  <label htmlFor="resume">
-                    Upload your resume (PDF / DOC / DOCX)
-                  </label>
+            {/* RIGHT: details + resume */}
+            <form className="hx-panel hx-panel-right" onSubmit={onSubmit}>
+              <h2>Before you start, a quick check-in</h2>
+              <p className="hx-panel-sub">
+                Confirm your details and upload your latest resume. We’ll only
+                use this for this interview process.
+              </p>
+
+              <div className="hx-field">
+                <label htmlFor="fullName">Full name</label>
+                <input
+                  id="fullName"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your full name"
+                  autoComplete="name"
+                  required
+                />
+              </div>
+
+              <div className="hx-field">
+                <label htmlFor="email">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </div>
+
+              <div className="hx-field">
+                <label>Upload your resume (PDF / DOC / DOCX)</label>
+                <label className="hx-dropzone">
                   <input
-                    id="resume"
                     type="file"
                     accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     onChange={(e) =>
                       setResumeFile(e.target.files?.[0] || null)
                     }
-                    required
+                    style={{ display: "none" }}
                   />
-                </div>
+                  <div className="hx-dropzone-icon">📄</div>
+                  <div className="hx-dropzone-text">
+                    <span className="hx-dropzone-main">{resumeLabel}</span>
+                    <span className="hx-dropzone-sub">
+                      Max 10MB. Make sure it’s up to date.
+                    </span>
+                  </div>
+                </label>
+              </div>
 
-                {submitError && (
-                  <div className="gx-banner error">{submitError}</div>
-                )}
+              {submitError && (
+                <div className="hx-banner error">{submitError}</div>
+              )}
 
-                <div className="gx-actions gx-actions-right">
-                  <button className="gx-btn primary" disabled={submitting}>
-                    {submitting ? "Submitting…" : "Submit & continue"}
-                  </button>
-                </div>
-
-                <p className="gx-privacy">
-                  We only use this info and your resume for this interview. Your
-                  data is stored securely.
+              <div className="hx-actions-right">
+                <button
+                  type="submit"
+                  className="hx-btn primary"
+                  disabled={submitting}
+                >
+                  {submitting ? "Submitting…" : "Submit & continue"}
+                </button>
+                <p className="hx-privacy">
+                  Your data is encrypted in transit and stored securely. Only
+                  the hiring team can access it.
                 </p>
-              </form>
-            </section>
-          </main>
-        </>
-      )}
+              </div>
+            </form>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
