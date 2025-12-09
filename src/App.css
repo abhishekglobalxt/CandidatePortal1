@@ -736,11 +736,3 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   }
 }
 
-/* Hard-lock: remove vertical scrollbar for the setup page */
-html,
-body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow-y: hidden;   /* <-- this hides the scrollbar */
-}
