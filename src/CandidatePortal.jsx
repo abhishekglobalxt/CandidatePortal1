@@ -319,39 +319,57 @@ export default function CandidatePortal() {
       // ignore
     }
   }, [interview?.interviewId, candidate, idx, tabSwitchCount, answerMeta]);
+  
 
   /** ================== Fullscreen on entry with gesture fallback ================== **/
+  /** ================ Fullscreen on entry with gesture fallback ================= */
   useEffect(() => {
-    try {
-      if (!document.fullscreenElement)
-        await document.documentElement.requestFullscreen();
-    } catch {}
-  };
-  enterFs();
-
-  document.addEventListener("fullscreenchange", onFs);
-    // If FS failed on mount, request it on first user gesture
+    const onFs = () => {
+      // do NOT warn once interview is fully done
+      if (stage !== "done" && !document.fullscreenElement) {
+        addWarning("fs-exit");
+      }
+    };
+  
+    const enterFs = async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch {
+        // ignore
+      }
+    };
+  
+    // try fullscreen immediately
+    enterFs();
+  
+    document.addEventListener("fullscreenchange", onFs);
+  
+    // if FS fails on mount, request it on first user gesture
     const onFirstGesture = async () => {
       if (!document.fullscreenElement) {
         try {
           await document.documentElement.requestFullscreen();
         } catch {
-          /* ignore */
+          // ignore
         }
       }
-      window.removeEventListener("pointerdown", onFirstGesture);
     };
+  
     window.addEventListener("pointerdown", onFirstGesture, { once: true });
-
+  
     return () => {
       document.removeEventListener("fullscreenchange", onFs);
       window.removeEventListener("pointerdown", onFirstGesture);
+  
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
+
 
   /** ================== Proctoring events ================== **/
   useEffect(() => {
