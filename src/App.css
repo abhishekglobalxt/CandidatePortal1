@@ -430,10 +430,10 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   border-radius: 32px;
   background: radial-gradient(circle at top left, #ffffff 0, #f9fafb 60%, #eef2ff 100%);
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.16);
-  padding: 20px 28px 24px;  
+  padding: 16px 24px 18px;   /* ↓ padding all around */
   display: flex;
   flex-direction: column;
-  gap: 20px; 
+  gap: 16px; 
 }
 
 .hx-card-header h1 {
