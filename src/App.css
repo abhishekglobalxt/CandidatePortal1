@@ -355,7 +355,7 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
 }
 
 .hx-main-wrap {
-  padding: 96px 24px 48px;
+  padding: 56px 16px 32px;
   display: flex;
   justify-content: center;
 }
@@ -430,10 +430,10 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   border-radius: 32px;
   background: radial-gradient(circle at top left, #ffffff 0, #f9fafb 60%, #eef2ff 100%);
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.16);
-  padding: 28px 32px 32px;
+  padding: 20px 28px 24px;  
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px; 
 }
 
 .hx-card-header h1 {
@@ -479,7 +479,7 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   overflow: hidden;
   background: linear-gradient(135deg, #e0ecff, #f5f3ff);
   border: 1px solid rgba(148, 163, 184, 0.3);
-  min-height: 220px;
+  min-height: 180px;
 }
 
 .hx-video-el {
