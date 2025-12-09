@@ -4,11 +4,6 @@ import "./App.css";
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
-// simple client-side GeoIP (IP -> country)
-const GEOIP_URL = "https://ipapi.co/json/";
-
-
-
 function useQuery() {
   const p = new URLSearchParams(window.location.search);
   return Object.fromEntries(p.entries());
@@ -18,65 +13,20 @@ function Pill({ ok, label }) {
   return (
     <span className={`gx-pill ${ok ? "ok" : ""}`}>
       <span className="dot" />
-      {label} {ok ? "ready" : "…"}
+      <span>{label}</span>
     </span>
   );
 }
 
 export default function SetupPortal() {
   const { token } = useQuery();
+
+  // basic secure link validation
   const [interviewId, setInterviewId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [linkError, setLinkError] = useState("");
 
-  // -------- Token validation & interview ID fetch (debug version) --------
-  useEffect(() => {
-    const validate = async () => {
-      if (!token) {
-        console.warn("[setup] missing token, redirecting.");
-        window.location.href = "/expired.html?reason=missing";
-        return;
-      }
-
-      try {
-        console.log("[setup] fetching /api/setup for token:", token);
-        const res = await fetch(`https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`, {
-          mode: "cors"
-        });
-
-        const raw = await res.text();
-        console.log("[setup] raw response text:", raw);
-
-        const data = JSON.parse(raw);
-        console.log("[setup] parsed data:", data);
-
-        if (!res.ok) {
-          window.location.href = `/expired.html?reason=${data.error || "unknown"}`;
-          return;
-        }
-
-        setInterviewId(data.interviewId);
-        sessionStorage.setItem("gx_interview_id", data.interviewId);
-        sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
-
-      } catch (err) {
-        console.error("[setup] error:", err);
-        window.location.href = "/expired.html?reason=error";
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    validate();
-  }, [token]);
-
-  // persist id for handoff to CandidatePortal
-  useEffect(() => {
-    if (interviewId) {
-      sessionStorage.setItem("gx_interview_id", interviewId);
-    }
-  }, [interviewId]);
-
-  // media / audio meter refs
+  // camera/mic refs
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -95,56 +45,99 @@ export default function SetupPortal() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
 
-  // verification doc state
-  const [countryCode, setCountryCode] = useState(""); // e.g. "IN"
-  const [geoError, setGeoError] = useState("");
-  const [docType, setDocType] = useState(""); // "aadhaar" | "passport" | "driving_license"
-  const [docFile, setDocFile] = useState(null);
+  // resume upload state
+  const [resumeFile, setResumeFile] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  // -------- GeoIP: detect country once on load --------
+  // -------- Validate token & fetch interview --------
   useEffect(() => {
-    let cancelled = false;
+    const validate = async () => {
+      if (!token) {
+        setLinkError("Missing or invalid link.");
+        setLoading(false);
+        return;
+      }
 
-    const detectCountry = async () => {
       try {
-        const res = await fetch(GEOIP_URL);
-        if (!res.ok) throw new Error("GeoIP request failed");
-        const data = await res.json();
-        if (cancelled) return;
+        const res = await fetch(
+          `https://hirexpert-1ecv.onrender.com/api/setup?token=${token}`,
+          { mode: "cors" }
+        );
 
-        const cc = (data.country_code || "").toUpperCase();
-        setCountryCode(cc);
-        if (cc === "IN") {
-          setDocType("aadhaar");
+        const raw = await res.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = { error: "Invalid response from server" };
+        }
+
+        if (!res.ok || !data.interviewId) {
+          const reason = data.error || "unknown";
+          setLinkError(
+            reason === "expired"
+              ? "This interview link has expired."
+              : "We could not validate your interview link."
+          );
+          setLoading(false);
+          return;
+        }
+
+        setInterviewId(data.interviewId);
+        sessionStorage.setItem("gx_interview_id", data.interviewId);
+        if (data.candidateEmail) {
+          sessionStorage.setItem("gx_candidate_email", data.candidateEmail);
+          setEmail(data.candidateEmail);
         }
       } catch (err) {
-        console.error("GeoIP error", err);
-        if (!cancelled) {
-          setGeoError(
-            "We couldn’t automatically detect your region. Please select an ID type."
-          );
-        }
+        console.error(err);
+        setLinkError("Unable to validate link. Please try again in a moment.");
+      } finally {
+        setLoading(false);
       }
     };
 
-    detectCountry();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    validate();
+  }, [token]);
 
   // -------- Camera & mic test --------
-  const startTest = async () => {
-    if (isTesting) return; // guard against double-clicks
-    setPermError("");
+  const stopTest = () => {
+    try {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    } catch (e) {
+      console.error("Error stopping test", e);
+    } finally {
+      setIsTesting(false);
+      setAudioLevel(0);
+      setCamOk(false);
+      setMicOk(false);
+    }
+  };
 
+  const startTest = async () => {
+    setPermError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -153,13 +146,18 @@ export default function SetupPortal() {
       });
 
       streamRef.current = stream;
-      setCamOk(stream.getVideoTracks().length > 0);
-      setMicOk(stream.getAudioTracks().length > 0);
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      setCamOk(videoTracks.length > 0);
+      setMicOk(audioTracks.length > 0);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // autoplay can still be blocked, but we ignore the error and let user click inside video if needed
-        await videoRef.current.play().catch(() => {});
+        try {
+          await videoRef.current.play();
+        } catch {
+          // ignore autoplay issues
+        }
       }
 
       // audio meter
@@ -199,47 +197,8 @@ export default function SetupPortal() {
     }
   };
 
-  const stopTest = () => {
-    // stop animation loop
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-
-    // close audio context
-    try {
-      analyserRef.current && analyserRef.current.disconnect();
-    } catch {}
-    try {
-      audioCtxRef.current && audioCtxRef.current.close();
-    } catch {}
-
-    analyserRef.current = null;
-    audioCtxRef.current = null;
-    dataArrayRef.current = null;
-
-    // stop media tracks
-    const s = streamRef.current;
-    if (s) {
-      s.getTracks().forEach((t) => t.stop());
-    }
-    streamRef.current = null;
-
-    // clear video
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    // reset state
-    setIsTesting(false);
-    setAudioLevel(0);
-    setCamOk(false);
-    setMicOk(false);
-  };
-
   useEffect(() => {
     return () => {
-      // cleanup on unmount
       stopTest();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,20 +213,16 @@ export default function SetupPortal() {
       return setSubmitError("Please enter your name and email.");
     }
 
-    if (!docType) {
-      return setSubmitError("Please select the type of verification document.");
+    if (!resumeFile) {
+      return setSubmitError("Please upload your resume.");
     }
 
-    if (!docFile) {
-      return setSubmitError("Please upload your verification document.");
-    }
-
-    const okExt = [".pdf", ".jpg", ".jpeg", ".png"].some((ext) =>
-      docFile.name.toLowerCase().endsWith(ext)
+    const okExt = [".pdf", ".doc", ".docx"].some((ext) =>
+      resumeFile.name.toLowerCase().endsWith(ext)
     );
     if (!okExt) {
       return setSubmitError(
-        "Verification document must be a PDF or an image (JPG/PNG)."
+        "Resume must be a PDF or Word document (.doc or .docx)."
       );
     }
 
@@ -281,8 +236,7 @@ export default function SetupPortal() {
 
     setSubmitting(true);
     try {
-        const iid = interviewId;
-
+      const iid = interviewId;
 
       const form = new FormData();
       form.append("name", name);
@@ -292,10 +246,8 @@ export default function SetupPortal() {
       form.append("mic_ok", String(micOk));
       form.append("user_agent", navigator.userAgent);
 
-      // verification fields for n8n
-      form.append("country_code", countryCode || "");
-      form.append("verification_doc_type", docType);
-      form.append("verification_document", docFile, docFile.name);
+      // resume field for n8n
+      form.append("resume", resumeFile, resumeFile.name);
 
       const res = await fetch(SETUP_WEBHOOK, {
         method: "POST",
@@ -311,9 +263,9 @@ export default function SetupPortal() {
 
       if (!res.ok || payload.ok === false) {
         const msg =
-          payload?.message ||
-          payload?.error ||
-          `Setup failed (${res.status})`;
+          payload.message ||
+          payload.error ||
+          "Setup failed on the server. Please contact support.";
         throw new Error(msg);
       }
 
@@ -321,7 +273,9 @@ export default function SetupPortal() {
         payload.candidateId || payload.candidate_id || payload.id || null;
 
       if (!candidateId) {
-        throw new Error("Setup succeeded but no candidateId was returned.");
+        throw new Error(
+          "Setup succeeded but no candidateId was returned. Please contact support."
+        );
       }
 
       sessionStorage.setItem(
@@ -330,9 +284,10 @@ export default function SetupPortal() {
       );
       sessionStorage.setItem("gx_interview_id", iid);
 
-    const nextUrl = `/interview?id=${encodeURIComponent(iid)}&token=${encodeURIComponent(token)}`;
-    window.location.assign(nextUrl);
-
+      const nextUrl = `/interview?id=${encodeURIComponent(
+        iid
+      )}&token=${encodeURIComponent(token)}`;
+      window.location.assign(nextUrl);
     } catch (err) {
       console.error(err);
       setSubmitError(
@@ -343,173 +298,157 @@ export default function SetupPortal() {
     }
   };
 
-  // -------- Derived UI text --------
-  const isIndia = countryCode === "IN";
-  const docLabel =
-    isIndia || docType === "aadhaar"
-      ? "Upload Aadhaar Card (PDF / JPG / PNG)"
-      : docType === "passport"
-      ? "Upload Passport (PDF / JPG / PNG)"
-      : docType === "driving_license"
-      ? "Upload Driving License (PDF / JPG / PNG)"
-      : "Upload verification document (PDF / JPG / PNG)";
-
-return (
-  <div className="gx-page">
-    {loading ? (
-      <p>Validating your secure link…</p>
-    ) : (
-      <>
-        <header className="gx-topbar">
-          <div className="brand">
-            <span className="logo-dot" />
-            <span className="brand-name">GlobalXperts</span>
-            <span className="brand-sub">Pre-interview check</span>
-          </div>
-        </header>
-
-        <main className="gx-container">
-          <section className="gx-card">
-          {/* LEFT: camera & mic */}
-          <div className="gx-left">
-            <h2>Check your camera &amp; mic</h2>
-            <p className="gx-sub">
-              We’ll quickly verify that your camera and microphone are working properly.
-            </p>
-
-            <div className="gx-video-surface">
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                autoPlay={false}
-                className="gx-video"
+  return (
+    <div className="gx-page">
+      {loading ? (
+        <p>Validating your secure link…</p>
+      ) : linkError ? (
+        <div className="gx-error-page">
+          <h1>Link problem</h1>
+          <p>{linkError}</p>
+        </div>
+      ) : (
+        <>
+          <header className="gx-header">
+            <div className="gx-logo-row">
+              <img
+                src="/globalxperts-logo.png"
+                alt="GlobalXperts"
+                className="gx-logo"
               />
-              <div className="gx-soft-shine" />
+              <span className="brand-name">GlobalXperts</span>
+              <span className="brand-sub">Pre-interview check</span>
             </div>
+          </header>
 
-            {/* actions under video, non-floating */}
-            <div className="gx-actions-left">
-              {!isTesting ? (
-                <button
-                  className="gx-btn primary"
-                  type="button"
-                  onClick={startTest}
-                >
-                  Start camera &amp; mic test
-                </button>
-              ) : (
-                <button
-                  className="gx-btn subtle"
-                  type="button"
-                  onClick={stopTest}
-                >
-                  Stop test
-                </button>
-              )}
-            </div>
+          <main className="gx-container">
+            <section className="gx-card">
+              {/* LEFT: camera & mic */}
+              <div className="gx-left">
+                <h2>Check your camera &amp; mic</h2>
+                <p className="gx-sub">
+                  We’ll quickly verify that your camera and microphone are
+                  working properly.
+                </p>
 
-            <div className="gx-meter">
-              <div
-                className="fill"
-                style={{ width: `${Math.round(audioLevel * 100)}%` }}
-              />
-            </div>
+                <div className="gx-video-surface">
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    muted
+                    autoPlay={false}
+                    className="gx-video"
+                  />
+                  <div className="gx-soft-shine" />
+                </div>
 
-            <div className="gx-status">
-              <Pill ok={camOk} label="Camera" />
-              <Pill ok={micOk} label="Mic" />
-            </div>
+                {/* actions under video, non-floating */}
+                <div className="gx-actions-left">
+                  {!isTesting ? (
+                    <button
+                      className="gx-btn primary"
+                      type="button"
+                      onClick={startTest}
+                    >
+                      Start camera &amp; mic test
+                    </button>
+                  ) : (
+                    <button
+                      className="gx-btn secondary"
+                      type="button"
+                      onClick={stopTest}
+                    >
+                      Stop test
+                    </button>
+                  )}
+                </div>
 
-            {permError && <div className="gx-banner error">{permError}</div>}
-            <p className="gx-hint">
-              Speak “testing 1-2-3” — the bar should pulse when your mic is working.
-            </p>
-          </div>
+                <div className="gx-meter">
+                  <div
+                    className="fill"
+                    style={{ width: `${Math.round(audioLevel * 100)}%` }}
+                  />
+                </div>
 
-          {/* RIGHT: candidate + verification */}
-          <form className="gx-right" onSubmit={onSubmit}>
-            <h2>Before you start, we need a quick verification</h2>
-            <p className="gx-sub">
-              Please confirm your details and upload a valid ID as per your region.
-            </p>
+                <div className="gx-status">
+                  <Pill ok={camOk} label="Camera" />
+                  <Pill ok={micOk} label="Mic" />
+                </div>
 
-            <div className="gx-field">
-              <input
-                id="fullName"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder=" "
-                autoComplete="name"
-                required
-              />
-              <label htmlFor="fullName">Full name</label>
-            </div>
-
-            <div className="gx-field">
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder=" "
-                autoComplete="email"
-                required
-              />
-              <label htmlFor="email">Email</label>
-            </div>
-
-            {/* Doc type selector for non-India users */}
-            {!isIndia && (
-              <div className="gx-field file">
-                <label htmlFor="verification_type">Verification document type</label>
-                <select
-                  id="verification_type"
-                  value={docType}
-                  onChange={(e) => setDocType(e.target.value)}
-                  required
-                >
-                  <option value="">Select ID type</option>
-                  <option value="passport">Passport</option>
-                  <option value="driving_license">Driving License</option>
-                </select>
+                {permError && <div className="gx-banner error">{permError}</div>}
+                <p className="gx-hint">
+                  Speak “testing 1-2-3” — the bar should pulse when your mic is
+                  working.
+                </p>
               </div>
-            )}
 
-            {geoError && <div className="gx-banner error">{geoError}</div>}
+              {/* RIGHT: candidate + resume */}
+              <form className="gx-right" onSubmit={onSubmit}>
+                <h2>Before you start, we need a quick check</h2>
+                <p className="gx-sub">
+                  Please confirm your details and upload your latest resume.
+                </p>
 
-            {/* File upload only after docType is known */}
-            {docType && (
-              <div className="gx-field file">
-                <label htmlFor="verification_document">{docLabel}</label>
-                <input
-                  id="verification_document"
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                  required
-                />
-              </div>
-            )}
+                <div className="gx-field">
+                  <input
+                    id="fullName"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder=" "
+                    autoComplete="name"
+                    required
+                  />
+                  <label htmlFor="fullName">Full name</label>
+                </div>
 
-            {submitError && <div className="gx-banner error">{submitError}</div>}
+                <div className="gx-field">
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder=" "
+                    autoComplete="email"
+                    required
+                  />
+                  <label htmlFor="email">Email</label>
+                </div>
 
-            <div className="gx-actions gx-actions-right">
-              <button className="gx-btn primary" disabled={submitting}>
-                {submitting ? "Submitting…" : "Submit & continue"}
-              </button>
-            </div>
+                <div className="gx-field file">
+                  <label htmlFor="resume">
+                    Upload your resume (PDF / DOC / DOCX)
+                  </label>
+                  <input
+                    id="resume"
+                    type="file"
+                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={(e) =>
+                      setResumeFile(e.target.files?.[0] || null)
+                    }
+                    required
+                  />
+                </div>
 
-            <p className="gx-privacy">
-              We only use this info and verification document for this interview. Your data is
-              stored securely.
-            </p>
-          </form>
-       </section>
-        </main>
-      </>
-    )}
-  </div>
-);
+                {submitError && (
+                  <div className="gx-banner error">{submitError}</div>
+                )}
+
+                <div className="gx-actions gx-actions-right">
+                  <button className="gx-btn primary" disabled={submitting}>
+                    {submitting ? "Submitting…" : "Submit & continue"}
+                  </button>
+                </div>
+
+                <p className="gx-privacy">
+                  We only use this info and your resume for this interview. Your
+                  data is stored securely.
+                </p>
+              </form>
+            </section>
+          </main>
+        </>
+      )}
+    </div>
+  );
 }
