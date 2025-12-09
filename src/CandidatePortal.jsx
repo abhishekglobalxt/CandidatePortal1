@@ -149,6 +149,12 @@ export default function CandidatePortal() {
   /** -------- Flow state -------- **/
   const [idx, setIdx] = useState(0);
   const [stage, setStage] = useState("question"); // question | review | uploading | done
+  
+  const stageRef = useRef(stage);
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
+
   const total = interview?.questions?.length || 0;
   const currentQ = interview?.questions?.[idx] || null;
 
@@ -322,11 +328,11 @@ export default function CandidatePortal() {
   
 
   /** ================== Fullscreen on entry with gesture fallback ================== **/
-  /** ================ Fullscreen on entry with gesture fallback ================= */
+  /** ================== Fullscreen on entry with gesture fallback ================== **/
   useEffect(() => {
     const onFs = () => {
-      // do NOT warn once interview is fully done
-      if (stage !== "done" && !document.fullscreenElement) {
+      // Do NOT warn once interview is fully done
+      if (stageRef.current !== "done" && !document.fullscreenElement) {
         addWarning("fs-exit");
       }
     };
@@ -341,12 +347,12 @@ export default function CandidatePortal() {
       }
     };
   
-    // try fullscreen immediately
+    // Try fullscreen immediately on mount
     enterFs();
   
     document.addEventListener("fullscreenchange", onFs);
   
-    // if FS fails on mount, request it on first user gesture
+    // If FS was blocked, request it on the first user gesture
     const onFirstGesture = async () => {
       if (!document.fullscreenElement) {
         try {
@@ -367,8 +373,8 @@ export default function CandidatePortal() {
         document.exitFullscreen().catch(() => {});
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
+  }, []); // 👈 run only once on mount
+
 
 
   /** ================== Proctoring events ================== **/
@@ -861,7 +867,8 @@ export default function CandidatePortal() {
           {stage === "done" && (
             <Card>
               <div className="hx-done">
-                🎉 All set! Thanks for completing the interview.
+                🎉 All set! Thanks for completing the interview. </br>
+              We shall get back to you shortly!
               </div>
             </Card>
           )}
