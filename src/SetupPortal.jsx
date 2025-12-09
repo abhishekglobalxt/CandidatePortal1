@@ -338,7 +338,7 @@ export default function SetupPortal() {
           </div>
         </div>
         <div className="hx-step">
-          <span className="hx-step-label">Step 1 of 2</span>
+          
           <span className="hx-step-title">Pre-interview check</span>
         </div>
       </header>
