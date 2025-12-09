@@ -322,21 +322,14 @@ export default function CandidatePortal() {
 
   /** ================== Fullscreen on entry with gesture fallback ================== **/
   useEffect(() => {
-    const enterFs = async () => {
-      try {
-        if (!document.fullscreenElement)
-          await document.documentElement.requestFullscreen();
-      } catch {
-        /* likely needs gesture */
-      }
-    };
-    enterFs();
+    try {
+      if (!document.fullscreenElement)
+        await document.documentElement.requestFullscreen();
+    } catch {}
+  };
+  enterFs();
 
-    const onFs = () => {
-      if (!document.fullscreenElement) addWarning("fs-exit");
-    };
-    document.addEventListener("fullscreenchange", onFs);
-
+  document.addEventListener("fullscreenchange", onFs);
     // If FS failed on mount, request it on first user gesture
     const onFirstGesture = async () => {
       if (!document.fullscreenElement) {
@@ -358,7 +351,7 @@ export default function CandidatePortal() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stage]);
 
   /** ================== Proctoring events ================== **/
   useEffect(() => {
