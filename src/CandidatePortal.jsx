@@ -867,8 +867,9 @@ export default function CandidatePortal() {
           {stage === "done" && (
             <Card>
               <div className="hx-done">
-                🎉 All set! Thanks for completing the interview. </br>
-              We shall get back to you shortly!
+                🎉 All set! Thanks for completing the interview. 
+                <br />
+                We shall get back to you shortly!
               </div>
             </Card>
           )}
