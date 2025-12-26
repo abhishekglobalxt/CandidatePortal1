@@ -286,7 +286,9 @@ export default function SetupPortal() {
       const nextUrl = `/interview?id=${encodeURIComponent(
         iid
       )}&token=${encodeURIComponent(token)}`;
-      window.location.assign(nextUrl);
+      stopTest(); // stop camera/mic before leaving setup page
+      window.location.replace(nextUrl); // replace so Back doesn’t return to setup/interview chain
+      return;
     } catch (err) {
       console.error(err);
       setSubmitError(
