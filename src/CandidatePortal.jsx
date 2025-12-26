@@ -622,18 +622,22 @@ export default function CandidatePortal() {
   };
   const clearLocalProgress = () => {
     try {
-      localStorage.removeItem(
-        progressKey(interview?.interviewId, candidate?.candidateId || candidate?.id)
-      );
+      const iid = interview?.interviewId || interviewId || "";
+      const cid = candidate?.candidateId || candidate?.id || "";
+      localStorage.removeItem(progressKey(iid, cid));
     } catch {}
   };
   
   const stopAllConnections = async () => {
     // Stop recorder
     try {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop();
+      const r = recorderRef.current;
+      if (r) {
+        r.ondataavailable = null;
+        r.onstop = null;
+        if (r.state !== "inactive") r.stop();
       }
+      recorderRef.current = null;
     } catch {}
   
     // Stop camera/mic tracks
