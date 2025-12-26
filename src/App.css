@@ -415,58 +415,7 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Ari
   padding: 24px 4px 10px;
   color: #0f766e;
 }
-/* ===== Fullscreen enforcement gate (blocks interview UI when fullscreen exits) ===== */
-.hx-fs-gate{
-  position: fixed;
-  inset: 0;
-  z-index: 9999; /* must be higher than sticky header/topbar z-index:40 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
 
-  background: rgba(2, 6, 23, 0.62);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.hx-fs-card{
-  width: min(560px, 92vw);
-  border-radius: 22px;
-  padding: 18px 18px 16px;
-
-  background: radial-gradient(circle at top left, #ffffff 0, #f8fafc 55%, #eef2ff 100%);
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  box-shadow: 0 26px 80px rgba(15, 23, 42, 0.35);
-}
-
-.hx-fs-title{
-  font-size: 18px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-  margin-bottom: 8px;
-  color: #0f172a;
-}
-
-.hx-fs-text{
-  font-size: 14px;
-  line-height: 1.45;
-  color: #475569;
-  margin-bottom: 14px;
-}
-
-.hx-fs-actions{
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-/* Optional: make the action button feel a bit stronger inside the modal */
-.hx-fs-card .hx-btn.primary{
-  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.28);
-}
 
 
 
@@ -1110,6 +1059,7 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
 }
 
 /* Fullscreen gate overlay (blocks interview until fullscreen restored) */
+/* Fullscreen gate overlay (blocks interview until fullscreen restored) */
 .hx-fs-gate{
   position: fixed;
   inset: 0;
@@ -1117,40 +1067,45 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(10, 16, 25, 0.72);
-  backdrop-filter: blur(8px);
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .hx-fs-card{
-  width: min(560px, 100%);
+  width: min(560px, 92vw);
   border-radius: 18px;
-  padding: 18px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.14);
-  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
-  color: #fff;
+  padding: 18px 18px 16px;
+  background: #ffffff;            /* ✅ white */
+  color: #0f172a;                 /* ✅ readable text */
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.25);
 }
 
 .hx-fs-title{
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 750;
   margin-bottom: 8px;
 }
 
 .hx-fs-text{
   font-size: 14px;
-  opacity: 0.9;
-  margin-bottom: 14px;
   line-height: 1.45;
+  color: #475569;
+  margin-bottom: 14px;
 }
 
+
 /* Optional: stop button style if you use hx-btn danger elsewhere */
+/* Strong Stop button */
 .hx-btn.danger{
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fff;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #ffffff;
+  box-shadow: 0 12px 22px rgba(220, 38, 38, 0.25);
 }
+
 .hx-btn.danger:hover{
-  background: rgba(239, 68, 68, 0.18);
+  filter: brightness(0.98);
 }
+
