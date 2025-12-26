@@ -116,22 +116,54 @@ export default function CandidatePortal() {
 
   // -------- Consume Interview Token (one-time use) --------
   useEffect(() => {
-    if (!token) return;
-
+    // Token is mandatory: without it, never allow interview UI
+    if (!token) {
+      window.location.replace(
+        `/thank-you?id=${encodeURIComponent(interviewId)}&reason=invalid_link`
+      );
+      return;
+    }
+  
+    let cancelled = false;
+  
     (async () => {
       try {
-        await fetch("https://hirexpert-1ecv.onrender.com/api/consume-token", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ token }),
-        });
+        const res = await fetch(
+          "https://hirexpert-1ecv.onrender.com/api/consume-token",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          }
+        );
+  
+        const data = await res.json().catch(() => ({}));
+  
+        // Flexible checks (depends on your backend response shape)
+        const ok =
+          res.ok &&
+          data?.ok !== false &&
+          data?.used !== true &&
+          data?.valid !== false &&
+          data?.status !== "used";
+  
+        if (!ok && !cancelled) {
+          window.location.replace(
+            `/thank-you?id=${encodeURIComponent(interviewId)}&reason=link_used`
+          );
+        }
       } catch (err) {
         console.error("Token consume error:", err);
+        // Optional: fail-closed (more secure)
+        // if (!cancelled) window.location.replace(`/thank-you?id=${encodeURIComponent(interviewId)}&reason=token_check_failed`);
       }
     })();
-  }, [token]);
+  
+    return () => {
+      cancelled = true;
+    };
+  }, [token, interviewId]);
+
 
   const candidate = useMemo(() => {
     try {
@@ -588,6 +620,69 @@ export default function CandidatePortal() {
       // ignore
     }
   };
+  const clearLocalProgress = () => {
+    try {
+      localStorage.removeItem(
+        progressKey(interview?.interviewId, candidate?.candidateId || candidate?.id)
+      );
+    } catch {}
+  };
+  
+  const stopAllConnections = async () => {
+    // Stop recorder
+    try {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+    } catch {}
+  
+    // Stop camera/mic tracks
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    } catch {}
+  
+    // Detach video element
+    try {
+      if (videoEl.current) {
+        videoEl.current.pause?.();
+        videoEl.current.srcObject = null;
+        videoEl.current.src = "";
+      }
+    } catch {}
+  
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {}
+    }
+  
+    // Clear session values
+    try {
+      sessionStorage.removeItem("gx_candidate");
+      sessionStorage.removeItem("gx_interview_id");
+    } catch {}
+  
+    // Clear progress saved in localStorage
+    clearLocalProgress();
+  };
+  
+  const redirectToThankYou = async (reason = "completed") => {
+    await stopAllConnections();
+  
+    const iid = interview?.interviewId || interviewId || "";
+    const cid = candidate?.candidateId || candidate?.id || "";
+  
+    window.location.replace(
+      `/thank-you?id=${encodeURIComponent(iid)}&cid=${encodeURIComponent(
+        cid
+      )}&reason=${encodeURIComponent(reason)}`
+    );
+  };
+
 
   const uploadAnswer = async () => {
     if (!UPLOAD_WEBHOOK) {
@@ -641,16 +736,16 @@ export default function CandidatePortal() {
         setStage("question");
         setTimeLeft(interview.questions[next]?.timeLimit ?? 120);
       } else {
-        saveLocalProgress(next);
+        // Interview completed:
+        // 1) DO NOT save progress (prevents resume/edit)
+        // 2) Clear progress
+        // 3) Stop all connections
+        // 4) Hard redirect (replace history so Back can’t return to interview)
+        clearLocalProgress();
         setIdx(total);
-        if (document.fullscreenElement) {
-          try {
-            await document.exitFullscreen();
-          } catch {
-            /* ignore */
-          }
-        }
-        setStage("done");
+      
+        await redirectToThankYou("completed");
+        return;
       }
     } catch (e) {
       console.error(e);
@@ -658,7 +753,6 @@ export default function CandidatePortal() {
       setStage("review");
     }
   };
-
   /** ================== Keyboard shortcuts ================== **/
   useEffect(() => {
     const onKey = (e) => {
