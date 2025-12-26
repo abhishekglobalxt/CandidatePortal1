@@ -2,8 +2,7 @@
 import gxLogo from "./assets/globalxperts-logo.png";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const [fsGate, setFsGate] = useState(false);
-const fsExitThrottleRef = useRef(0);
+
 
 
 /** ================== ENV / CONFIG ================== **/
@@ -207,6 +206,9 @@ export default function CandidatePortal() {
 
   /** -------- Proctoring -------- **/
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [fsGate, setFsGate] = useState(false);
+  const fsExitThrottleRef = useRef(0);
+
   const [answerMeta, setAnswerMeta] = useState({}); // { qid: { warnings:[{type,ts}] } }
   const [banners, setBanners] = useState([]);
   const pushBanner = (msg) =>
@@ -808,6 +810,32 @@ export default function CandidatePortal() {
         current={idx}
         total={total}
       />
+      {fsGate && stage !== "done" && (
+        <div className="hx-fs-gate" role="dialog" aria-modal="true">
+          <div className="hx-fs-card">
+            <div className="hx-fs-title">Fullscreen required</div>
+            <div className="hx-fs-text">
+              Exiting fullscreen is not allowed. This attempt has been counted as a warning.
+              Click below to return to fullscreen to continue the interview.
+            </div>
+      
+            <button
+              className="hx-btn hx-btn-primary"
+              onClick={async () => {
+                try {
+                  await document.documentElement.requestFullscreen();
+                  setFsGate(false);
+                } catch {
+                  // keep them blocked
+                }
+              }}
+            >
+              Return to fullscreen
+            </button>
+          </div>
+        </div>
+      )}
+
 
       <main className="hx-main">
         {/* LEFT RAIL */}
