@@ -456,8 +456,8 @@ export default function CandidatePortal() {
       next[qid] = entry;
       return next;
     });
-    if (["visibility", "blur", "fs-exit"].includes(reason))
-      setTabSwitchCount((n) => n + 1);
+    if (["visibility", "blur"].includes(reason)) setTabSwitchCount((n) => n + 1);
+
     pushBanner(
       reason === "visibility"
         ? "We detected a tab/app switch. Please stay focused on the interview."
