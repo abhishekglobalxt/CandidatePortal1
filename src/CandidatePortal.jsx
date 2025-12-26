@@ -25,6 +25,9 @@ const WARNING_AUTOHIDE_MS = 3500;
 const progressKey = (iid, cid) =>
   `hirexpert_progress_${iid || "na"}_${cid || "na"}`;
 
+const completedKey = (iid, cid) => `${progressKey(iid, cid)}_completed`;
+
+
 /** ================== Small UI helpers (no layout change) ================== **/
 function Header({ title, current, total }) {
   const pct = total ? Math.round((current / total) * 100) : 0;
@@ -140,6 +143,25 @@ export default function CandidatePortal() {
       return {};
     }
   }, []);
+  const candidateId =
+    candidate?.candidateId ||
+    candidate?.id ||
+    candidate?.candidate_id ||
+    candidate?.candidate_token ||
+    "na";
+
+  // If interview was already completed on this device/browser, never show UI again.
+  useEffect(() => {
+    if (!interviewId) return;
+    try {
+      if (localStorage.getItem(completedKey(interviewId, candidateId)) === "1") {
+        window.location.replace("/thank-you");
+      }
+    } catch {
+      // ignore
+    }
+  }, [interviewId, candidateId]);
+
 
   /** -------- Data state -------- **/
   const [loading, setLoading] = useState(true);
@@ -588,6 +610,77 @@ export default function CandidatePortal() {
       // ignore
     }
   };
+  const finalizeAndRedirect = async (iid) => {
+    // Mark as done immediately to prevent fullscreen warnings etc.
+    stageRef.current = "done";
+    setStage("done");
+
+    // Stop recorder if still recording
+    try {
+      if (
+        recorderRef.current &&
+        recorderRef.current.state === "recording"
+      ) {
+        recorderRef.current.stop();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Stop camera/mic tracks
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Release playback URL + detach video
+    try {
+      if (videoEl.current) {
+        videoEl.current.pause();
+        videoEl.current.srcObject = null;
+        videoEl.current.removeAttribute("src");
+        videoEl.current.load?.();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+    } catch {
+      /* ignore */
+    }
+
+    setIsRecording(false);
+    setRecordedBlob(null);
+    setRecordingUrl("");
+
+    // Exit fullscreen
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Lock completion + wipe resumable progress
+    try {
+      localStorage.setItem(completedKey(iid, candidateId), "1");
+      localStorage.removeItem(progressKey(iid, candidateId));
+    } catch {
+      /* ignore */
+    }
+
+    // Finally: replace history so back button can't re-open interview page
+    window.location.replace("/thank-you");
+  };
+
+  
 
   const uploadAnswer = async () => {
     if (!UPLOAD_WEBHOOK) {
@@ -641,17 +734,12 @@ export default function CandidatePortal() {
         setStage("question");
         setTimeLeft(interview.questions[next]?.timeLimit ?? 120);
       } else {
-        saveLocalProgress(next);
-        setIdx(total);
-        if (document.fullscreenElement) {
-          try {
-            await document.exitFullscreen();
-          } catch {
-            /* ignore */
-          }
-        }
-        setStage("done");
-      }
+         // last question uploaded → hard stop + lock + redirect
+         saveLocalProgress(next);
+         setIdx(total);
+         await finalizeAndRedirect(interview.interviewId);
+       }
+
     } catch (e) {
       console.error(e);
       alert("Upload failed. Please try again.");
