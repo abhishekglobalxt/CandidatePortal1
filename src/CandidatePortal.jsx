@@ -189,6 +189,8 @@ export default function CandidatePortal() {
   useEffect(() => {
     stageRef.current = stage;
   }, [stage]);
+  const shuttingDownRef = useRef(false);
+
 
   const total = interview?.questions?.length || 0;
   const currentQ = interview?.questions?.[idx] || null;
@@ -370,6 +372,8 @@ export default function CandidatePortal() {
   useEffect(() => {
     const warnAndGate = () => {
       // Do NOT warn once interview is fully done
+      if (shuttingDownRef.current) return;
+
       if (stageRef.current === "done") return;
   
       // prevent double-warning on the same exit (keydown + fullscreenchange)
@@ -433,10 +437,10 @@ export default function CandidatePortal() {
       if (document.visibilityState !== "visible") addWarning("visibility");
     };
     const onBlur = () => addWarning("blur");
-    window.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onVis);
     window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("blur", onBlur);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -693,6 +697,10 @@ export default function CandidatePortal() {
   };
   
   const redirectToThankYou = async (reason = "completed") => {
+    shuttingDownRef.current = true;  // <— IMPORTANT
+    stageRef.current = "done";       // <— IMPORTANT
+    setStage("done");                // <— optional but clean
+  
     await stopAllConnections();
   
     const iid = interview?.interviewId || interviewId || "";
@@ -704,6 +712,7 @@ export default function CandidatePortal() {
       )}&reason=${encodeURIComponent(reason)}`
     );
   };
+
 
 
   const uploadAnswer = async () => {
