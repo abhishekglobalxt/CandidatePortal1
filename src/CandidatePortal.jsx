@@ -2,6 +2,10 @@
 import gxLogo from "./assets/globalxperts-logo.png";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const [fsGate, setFsGate] = useState(false);
+const fsExitThrottleRef = useRef(0);
+
+
 /** ================== ENV / CONFIG ================== **/
 // Use the protected external endpoint with API key
 const INTERVIEWS_API = "https://hirexpert-1ecv.onrender.com/api/external/interviews";
@@ -230,7 +234,7 @@ export default function CandidatePortal() {
         : reason === "blur"
         ? "Window focus lost. Please return to the interview."
         : reason === "fs-exit"
-        ? "Fullscreen was exited. Please stay in fullscreen."
+        ? "Exiting Full Screen is not allowed. Click “Return to Full Screen” to continue."
         : reason === "multiple-faces"
         ? "Multiple faces detected. Continue solo to avoid flags."
         : reason === "no-face"
@@ -362,10 +366,33 @@ export default function CandidatePortal() {
   /** ================== Fullscreen on entry with gesture fallback ================== **/
   /** ================== Fullscreen on entry with gesture fallback ================== **/
   useEffect(() => {
-    const onFs = () => {
+    const warnAndGate = () => {
       // Do NOT warn once interview is fully done
-      if (stageRef.current !== "done" && !document.fullscreenElement) {
-        addWarning("fs-exit");
+      if (stageRef.current === "done") return;
+  
+      // prevent double-warning on the same exit (keydown + fullscreenchange)
+      const now = Date.now();
+      if (now - fsExitThrottleRef.current < 800) return;
+      fsExitThrottleRef.current = now;
+  
+      addWarning("fs-exit");     // ✅ increments warning counter (your logic already does this)
+      setFsGate(true);           // ✅ blocks interview UI
+    };
+  
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        warnAndGate();
+      } else {
+        // regained fullscreen
+        setFsGate(false);
+      }
+    };
+  
+    const onKeyDown = (e) => {
+      // Can't prevent ESC from exiting fullscreen.
+      // But we can warn+gate immediately.
+      if (e.key === "Escape") {
+        warnAndGate();
       }
     };
   
@@ -379,33 +406,22 @@ export default function CandidatePortal() {
       }
     };
   
-    // Try fullscreen immediately on mount
+    // attempt on mount
     enterFs();
   
-    document.addEventListener("fullscreenchange", onFs);
-  
-    // If FS was blocked, request it on the first user gesture
-    const onFirstGesture = async () => {
-      if (!document.fullscreenElement) {
-        try {
-          await document.documentElement.requestFullscreen();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  
-    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    document.addEventListener("fullscreenchange", onFsChange);
+    window.addEventListener("keydown", onKeyDown);
   
     return () => {
-      document.removeEventListener("fullscreenchange", onFs);
-      window.removeEventListener("pointerdown", onFirstGesture);
+      document.removeEventListener("fullscreenchange", onFsChange);
+      window.removeEventListener("keydown", onKeyDown);
   
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
     };
-  }, []); // 👈 run only once on mount
+  }, []);
+
 
 
 
