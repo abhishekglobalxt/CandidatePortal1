@@ -210,6 +210,9 @@ export default function CandidatePortal() {
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [fsGate, setFsGate] = useState(false);
   const fsExitThrottleRef = useRef(0);
+  const fsEverEnteredRef = useRef(false);     // track if fullscreen was ever actually entered
+  const [fsGateMode, setFsGateMode] = useState("enter"); // "enter" | "exit"
+
 
   const [answerMeta, setAnswerMeta] = useState({}); // { qid: { warnings:[{type,ts}] } }
   const [banners, setBanners] = useState([]);
@@ -371,35 +374,28 @@ export default function CandidatePortal() {
   /** ================== Fullscreen on entry with gesture fallback ================== **/
   useEffect(() => {
     const warnAndGate = () => {
-      // Do NOT warn once interview is fully done
       if (shuttingDownRef.current) return;
-
       if (stageRef.current === "done") return;
   
-      // prevent double-warning on the same exit (keydown + fullscreenchange)
       const now = Date.now();
       if (now - fsExitThrottleRef.current < 800) return;
       fsExitThrottleRef.current = now;
   
-      addWarning("fs-exit");     // ✅ increments warning counter (your logic already does this)
-      setFsGate(true);           // ✅ blocks interview UI
+      setFsGateMode("exit");
+      addWarning("fs-exit");      // counts warning
+      setFsGate(true);            // blocks UI
     };
   
     const onFsChange = () => {
-      if (!document.fullscreenElement) {
-        warnAndGate();
-      } else {
-        // regained fullscreen
+      if (document.fullscreenElement) {
+        fsEverEnteredRef.current = true; // now we consider fullscreen "active once"
         setFsGate(false);
+        return;
       }
-    };
   
-    const onKeyDown = (e) => {
-      // Can't prevent ESC from exiting fullscreen.
-      // But we can warn+gate immediately.
-      if (e.key === "Escape") {
-        warnAndGate();
-      }
+      // If fullscreen was never entered (browser blocked on load), DO NOT gate here.
+      // Only gate when user exits fullscreen after having entered it once.
+      if (fsEverEnteredRef.current) warnAndGate();
     };
   
     const enterFs = async () => {
@@ -408,31 +404,27 @@ export default function CandidatePortal() {
           await document.documentElement.requestFullscreen();
         }
       } catch {
-        // ignore
-      } finally {
-        // If the browser blocked fullscreen (no gesture), BLOCK the interview
-        if (!document.fullscreenElement) {
-          setFsGate(true);
-        }
+        // browser may block until a gesture
       }
     };
-
   
-    // attempt on mount
+    // Attempt once on mount (may fail without gesture)
     enterFs();
   
+    // Try again on first user gesture (this will usually succeed)
+    const onFirstGesture = async () => {
+      await enterFs();
+    };
+  
     document.addEventListener("fullscreenchange", onFsChange);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
   
     return () => {
       document.removeEventListener("fullscreenchange", onFsChange);
-      window.removeEventListener("keydown", onKeyDown);
-  
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
+      window.removeEventListener("pointerdown", onFirstGesture);
     };
   }, []);
+
 
 
 
@@ -550,6 +542,13 @@ export default function CandidatePortal() {
   };
 
   const startRecording = async () => {
+    // Require fullscreen before recording begins
+    if (!document.fullscreenElement) {
+      setFsGateMode("enter");
+      setFsGate(true);      // block until user clicks Return to fullscreen
+      return;
+    }
+
     if (isStartingRef.current) return;
     isStartingRef.current = true;
     try {
@@ -830,8 +829,9 @@ export default function CandidatePortal() {
           <div className="hx-fs-card">
             <div className="hx-fs-title">Fullscreen required</div>
             <div className="hx-fs-text">
-              Exiting fullscreen is not allowed. This attempt has been counted as a warning.
-              Click below to return to fullscreen to continue the interview.
+              {fsGateMode === "exit"
+                ? "Exiting fullscreen is not allowed. This attempt has been counted as a warning. Click below to return to fullscreen to continue the interview."
+                : "Please enter fullscreen to start/continue the interview. Click below to go fullscreen."}
             </div>
       
             <button
@@ -839,6 +839,7 @@ export default function CandidatePortal() {
               onClick={async () => {
                 try {
                   await document.documentElement.requestFullscreen();
+                  fsEverEnteredRef.current = true;
                   setFsGate(false);
                 } catch {
                   // keep them blocked
