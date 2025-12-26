@@ -409,8 +409,14 @@ export default function CandidatePortal() {
         }
       } catch {
         // ignore
+      } finally {
+        // If the browser blocked fullscreen (no gesture), BLOCK the interview
+        if (!document.fullscreenElement) {
+          setFsGate(true);
+        }
       }
     };
+
   
     // attempt on mount
     enterFs();
@@ -829,7 +835,7 @@ export default function CandidatePortal() {
             </div>
       
             <button
-              className="hx-btn hx-btn-primary"
+              className="hx-btn primary"
               onClick={async () => {
                 try {
                   await document.documentElement.requestFullscreen();
