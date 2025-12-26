@@ -1109,3 +1109,48 @@ body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Hel
   }
 }
 
+/* Fullscreen gate overlay (blocks interview until fullscreen restored) */
+.hx-fs-gate{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 16, 25, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.hx-fs-card{
+  width: min(560px, 100%);
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+  color: #fff;
+}
+
+.hx-fs-title{
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.hx-fs-text{
+  font-size: 14px;
+  opacity: 0.9;
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+
+/* Optional: stop button style if you use hx-btn danger elsewhere */
+.hx-btn.danger{
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fff;
+}
+.hx-btn.danger:hover{
+  background: rgba(239, 68, 68, 0.18);
+}
