@@ -415,6 +415,59 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Ari
   padding: 24px 4px 10px;
   color: #0f766e;
 }
+/* ===== Fullscreen enforcement gate (blocks interview UI when fullscreen exits) ===== */
+.hx-fs-gate{
+  position: fixed;
+  inset: 0;
+  z-index: 9999; /* must be higher than sticky header/topbar z-index:40 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+
+  background: rgba(2, 6, 23, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.hx-fs-card{
+  width: min(560px, 92vw);
+  border-radius: 22px;
+  padding: 18px 18px 16px;
+
+  background: radial-gradient(circle at top left, #ffffff 0, #f8fafc 55%, #eef2ff 100%);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 26px 80px rgba(15, 23, 42, 0.35);
+}
+
+.hx-fs-title{
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  margin-bottom: 8px;
+  color: #0f172a;
+}
+
+.hx-fs-text{
+  font-size: 14px;
+  line-height: 1.45;
+  color: #475569;
+  margin-bottom: 14px;
+}
+
+.hx-fs-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Optional: make the action button feel a bit stronger inside the modal */
+.hx-fs-card .hx-btn.primary{
+  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.28);
+}
+
 
 
 .hx-logo {
