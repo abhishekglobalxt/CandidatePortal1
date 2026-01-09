@@ -1,7 +1,7 @@
 // src/SetupPortal.jsx
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import gxLogo from "./assets/globalxperts-logo.png";
+import gxLogo from "./assets/new-globalxperts-logo.png";
 
 const SETUP_WEBHOOK = import.meta.env.VITE_SETUP_WEBHOOK;
 
