@@ -1,5 +1,5 @@
 // ThankYou.jsx
-import gxLogo from "./assets/globalxperts-logo.png";
+import gxLogo from "./assets/new-globalxperts-logo.png";
 import { useEffect } from "react";
 
 export default function ThankYou() {
