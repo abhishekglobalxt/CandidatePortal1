@@ -1,5 +1,5 @@
 // CandidatePortal.jsx
-import gxLogo from "./assets/globalxperts-logo.png";
+import gxLogo from "./assets/new-globalxperts-logo.png";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
 
